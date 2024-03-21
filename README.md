@@ -6,6 +6,7 @@ This repository contains the project for the "Embedded Real Time Control" course
 - Edoardo Scarpel
 - Simone Furlan
 - Stelina Mukaj
+- Maedeh Ebrahimi
 
 ## Description
 [Add a brief description of the project here, highlighting its objectives and key features.]
