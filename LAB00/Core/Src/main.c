@@ -95,7 +95,7 @@ static void MX_TIM6_Init(void);
 
 uint32_t delay = 1000;
 
-void HAL_GPIO_EXTI_Callback(unit16_t pin) {
+void HAL_GPIO_EXTI_Callback(uint16_t pin) {
 	// EXERCISE 3
 	//HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
 
