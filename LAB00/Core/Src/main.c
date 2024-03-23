@@ -179,10 +179,6 @@ int main(void)
 	  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
 	  HAL_Delay(delay);
 
-	  // PROVA
-
-	  // PROVA 2
-
   }
   /* USER CODE END 3 */
 }
