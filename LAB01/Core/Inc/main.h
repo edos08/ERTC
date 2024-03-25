@@ -7,12 +7,13 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
+  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
+  * All rights reserved.</center></h2>
   *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
+  * This software component is licensed by ST under BSD 3-Clause license,
+  * the "License"; You may not use this file except in compliance with the
+  * License. You may obtain a copy of the License at:
+  *                        opensource.org/licenses/BSD-3-Clause
   *
   ******************************************************************************
   */
@@ -59,36 +60,31 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define TIM3_ARR_VALUE 3839
-#define TIM4_ARR_VALUE 3839
 #define TIM8_PSC_VALUE 959
-#define TIM8_ARR_VALUE 399
-#define TIM6_PSC_VALUE 959
-#define TIM6_ARR_VALUE 999
+#define TIM8_ARR_VALUE 400
 #define TIM1_PSC_VALUE 959
-#define TIM1_ARR_VALUE 1999
-#define TIM2_PSC_VALUE 95
-#define TIM2_ARR_VALUE 100000
-#define TIM2_CCR1_VALUE 10000
-#define TIM5_PSC_VALUE 959
-#define TIM5_ARR_VALUE 200
-#define TIM5_CCR1_VALUE 100
+#define TIM1_ARR_VALUE 200
 #define GPIO_OUT_SPI_CS_SDCARD_Pin GPIO_PIN_3
 #define GPIO_OUT_SPI_CS_SDCARD_GPIO_Port GPIOE
 #define GPIO_OUT_SPI_CS_LCD_Pin GPIO_PIN_4
 #define GPIO_OUT_SPI_CS_LCD_GPIO_Port GPIOE
+#define TIM9_CH1_USER_LED1_Pin GPIO_PIN_5
+#define TIM9_CH1_USER_LED1_GPIO_Port GPIOE
+#define TIM9_CH2_USER_LED2_Pin GPIO_PIN_6
+#define TIM9_CH2_USER_LED2_GPIO_Port GPIOE
 #define GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin GPIO_PIN_2
 #define GPIO_EXTI2_PROXY_TOF_SENS_IRQ_GPIO_Port GPIOF
-#define GPIO_EXTI2_PROXY_TOF_SENS_IRQ_EXTI_IRQn EXTI2_IRQn
 #define GPIO_EXTI3_IMU_IRQ_Pin GPIO_PIN_3
 #define GPIO_EXTI3_IMU_IRQ_GPIO_Port GPIOF
-#define GPIO_EXTI3_IMU_IRQ_EXTI_IRQn EXTI3_IRQn
 #define GPIO_EXTI4_KPAD_IRQ_Pin GPIO_PIN_4
 #define GPIO_EXTI4_KPAD_IRQ_GPIO_Port GPIOF
 #define GPIO_EXTI4_KPAD_IRQ_EXTI_IRQn EXTI4_IRQn
+#define GPIO_EXTI8_USER_BUT1_IRQ_Pin GPIO_PIN_8
+#define GPIO_EXTI8_USER_BUT1_IRQ_GPIO_Port GPIOF
+#define GPIO_EXTI9_USER_BUT2_IRQ_Pin GPIO_PIN_9
+#define GPIO_EXTI9_USER_BUT2_IRQ_GPIO_Port GPIOF
 #define GPIO_EXTI10_BUMP1_IRQ_Pin GPIO_PIN_10
 #define GPIO_EXTI10_BUMP1_IRQ_GPIO_Port GPIOF
-#define GPIO_EXTI10_BUMP1_IRQ_EXTI_IRQn EXTI15_10_IRQn
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOH
 #define RMII_MDC_Pin GPIO_PIN_1
@@ -111,13 +107,10 @@ void Error_Handler(void);
 #define LD1_GPIO_Port GPIOB
 #define GPIO_EXTI11_BUMP2_IRQ_Pin GPIO_PIN_11
 #define GPIO_EXTI11_BUMP2_IRQ_GPIO_Port GPIOF
-#define GPIO_EXTI11_BUMP2_IRQ_EXTI_IRQn EXTI15_10_IRQn
 #define GPIO_EXTI12_BUMP3_IRQ_Pin GPIO_PIN_12
 #define GPIO_EXTI12_BUMP3_IRQ_GPIO_Port GPIOF
-#define GPIO_EXTI12_BUMP3_IRQ_EXTI_IRQn EXTI15_10_IRQn
 #define GPIO_EXTI13_BUMP4_IRQ_Pin GPIO_PIN_13
 #define GPIO_EXTI13_BUMP4_IRQ_GPIO_Port GPIOF
-#define GPIO_EXTI13_BUMP4_IRQ_EXTI_IRQn EXTI15_10_IRQn
 #define TIM1_CH1_SERVO1_Pin GPIO_PIN_9
 #define TIM1_CH1_SERVO1_GPIO_Port GPIOE
 #define TIM1_CH2_SERVO2_Pin GPIO_PIN_11
