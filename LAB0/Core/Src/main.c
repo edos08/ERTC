@@ -179,19 +179,6 @@ int main(void)
 	  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
 	  HAL_Delay(delay);
 
-	  // PERSONA 1
-
-<<<<<<< Updated upstream
-	  // jadnkanckasncasncka
-	  // ajsnckajsnckasnckasnc
-	  // anckaksnkjdnksnKJDN
-
-=======
->>>>>>> Stashed changes
-	  // PERSONA 2
-
-	  // ajhsncjannckankjnsckjn
-
   }
   /* USER CODE END 3 */
 }
