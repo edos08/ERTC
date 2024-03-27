@@ -181,11 +181,16 @@ int main(void)
 
 	  // PERSONA 1
 
+<<<<<<< Updated upstream
 	  // jadnkanckasncasncka
 	  // ajsnckajsnckasnckasnc
 	  // anckaksnkjdnksnKJDN
 
+=======
+>>>>>>> Stashed changes
 	  // PERSONA 2
+
+	  // ajhsncjannckankjnsckjn
 
   }
   /* USER CODE END 3 */
