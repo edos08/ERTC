@@ -106,6 +106,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   printf("Interrupt on pin (%d).\n", GPIO_Pin);
   /* your code here */
+
+  uint8_t data_column;
+  HAL_StatusTypeDef status;
+
+  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+      printf("I2C communication error (%X).\n", status);
+  else
+	  printf("Data column: (%X).\n", data_column);
+
+  uint8_t data_row;
+  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+      printf("I2C communication error (%X).\n", status);
+  else
+	  printf("Data row: (%X).\n", data_row);
+
 }
 
 /* USER CODE END 0 */
@@ -116,7 +133,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
   uint8_t data;
   HAL_StatusTypeDef status;
@@ -299,6 +315,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
   }
   /* USER CODE END 3 */
 }
@@ -1190,8 +1207,6 @@ static void MX_USART3_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -1219,12 +1234,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin GPIO_EXTI4_KPAD_IRQ_Pin */
-  GPIO_InitStruct.Pin = GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin|GPIO_EXTI4_KPAD_IRQ_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-
   /*Configure GPIO pins : GPIO_EXTI3_IMU_IRQ_Pin GPIO_EXTI8_USER_BUT1_IRQ_Pin GPIO_EXTI9_USER_BUT2_IRQ_Pin GPIO_EXTI10_BUMP1_IRQ_Pin
                            GPIO_EXTI11_BUMP2_IRQ_Pin GPIO_EXTI12_BUMP3_IRQ_Pin GPIO_EXTI13_BUMP4_IRQ_Pin */
   GPIO_InitStruct.Pin = GPIO_EXTI3_IMU_IRQ_Pin|GPIO_EXTI8_USER_BUT1_IRQ_Pin|GPIO_EXTI9_USER_BUT2_IRQ_Pin|GPIO_EXTI10_BUMP1_IRQ_Pin
@@ -1232,6 +1241,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : GPIO_EXTI4_KPAD_IRQ_Pin */
+  GPIO_InitStruct.Pin = GPIO_EXTI4_KPAD_IRQ_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIO_EXTI4_KPAD_IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RMII_MDC_Pin RMII_RXD0_Pin RMII_RXD1_Pin */
   GPIO_InitStruct.Pin = RMII_MDC_Pin|RMII_RXD0_Pin|RMII_RXD1_Pin;
@@ -1303,8 +1318,9 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI4_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
 }
 
 /* USER CODE BEGIN 4 */
