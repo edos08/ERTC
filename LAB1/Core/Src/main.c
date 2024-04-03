@@ -102,6 +102,22 @@ extern void initialise_monitor_handles(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+struct key_pair {
+	uint8_t column;
+	uint8_t row;
+};
+
+struct key_pair keys[] = {{254, 247},
+		{253, 247},
+		{251, 247},
+		{254, 251},
+		{253, 251},
+		{251, 251},
+		{254, 253},
+		{253, 253},
+		{251, 253}};
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   printf("Interrupt on pin (%d).\n", GPIO_Pin);
@@ -114,14 +130,26 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   if (status != HAL_OK)
       printf("I2C communication error (%X).\n", status);
   else
-	  printf("Data column: (%X).\n", data_column);
+	  printf("Data column: (%d).\n", data_column);
 
   uint8_t data_row;
   status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
   if (status != HAL_OK)
       printf("I2C communication error (%X).\n", status);
   else
-	  printf("Data row: (%X).\n", data_row);
+	  printf("Data row: (%d).\n", data_row);
+
+  struct key_pair key = {data_column, data_row};
+
+  int final_key = 0;
+
+  for (int i=0; i<9; i++) {
+	  if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
+		  final_key = i + 1;
+	  }
+  }
+
+  printf("Key pressed: (%d).\n", final_key);
 
 }
 
@@ -315,6 +343,19 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  // ------ EXERCISE 3 ------
+	  /*uint8_t line_sensor_data;
+	  HAL_StatusTypeDef status;
+	  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
+	  if (status != HAL_OK)
+		  printf("I2C communication error (%X).\n", status);
+	  else
+		  printf("I2C line sensor data (%X).\n", line_sensor_data);
+
+	  HAL_Delay(100);*/
+
+	  // ------ EXERCISE 4 ------
+
 
   }
   /* USER CODE END 3 */
