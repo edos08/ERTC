@@ -188,8 +188,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 		interval = 1000/final_value;
 	}
 
-
-
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
