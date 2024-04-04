@@ -103,28 +103,28 @@ extern void initialise_monitor_handles(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int interval = 0;
+int period = 0;
 
-struct key_pair {
+struct key_pair {				// structure for key pairs
 	uint8_t column;
 	uint8_t row;
 };
 
 struct key_pair keys[] = {
-		{254, 247},
-		{253, 247},
-		{251, 247},
-		{254, 251},
-		{253, 251},
-		{251, 251},
-		{254, 253},
-		{253, 253},
-		{251, 253},
-		{251, 254}
+		{254, 247},				// 1
+		{253, 247},				// 2
+		{251, 247},				// 3
+		{254, 251},				// 4
+		{253, 251},				// 5
+		{251, 251},				// 6
+		{254, 253},				// 7
+		{253, 253},				// 8
+		{251, 253},				// 9
+		{251, 254}				// #
 };
 
-int values[5];
-int counter = 0;
+int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
+int counter = 0;				// counter for the values array
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
@@ -157,7 +157,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	int final_key = 0;
 
-	for (int i=0; i<10; i++) {
+	for (int i=0; i<10; i++) {								// iterate through the keys array
 		if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
 			final_key = i + 1;
 			break;
@@ -167,25 +167,30 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	printf("Key pressed: (%d).\n", final_key);
 
 	/*if (final_key != 10)
-		interval = 1000/final_key;*/
+		period = 1000/final_key;*/
 
 	// BONUS PART
 	int final_value = 0;
 
-	if (final_key != 10 && counter < 5) {
+	if (final_key != 10 && counter < 5) {					// if the key is not # and the maximum number of digits is not reached
 		values[counter] = final_key;
 		counter++;
-	} else {
+	} else if (final_key == 10){							// if the key is #
 		for (int i = 0; i < counter; i++) {
 			int power = pow(10, counter-i-1);
-			final_value = final_value + values[i]*power;
+			final_value = final_value + values[i]*power;	// compute the final value using powers of 10
 		}
 		printf("Final frequency: (%d).\n", final_value);
 		counter = 0;
 		for (int i = 0; i < 5; i++)
 		    values[i] = 0;
 
-		interval = 1000/final_value;
+		period = 1000/final_value;
+	} else {												// if the maximum number of digits is reached
+		printf("Maximum number of digits reached. Please insert another sequence of numbers.\n");
+		counter = 0;
+		for (int i = 0; i < 5; i++)
+		    values[i] = 0;
 	}
 
 }
@@ -214,6 +219,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
   uint8_t data;
   HAL_StatusTypeDef status;
@@ -402,7 +408,7 @@ int main(void)
 	// ------ EXERCISE 4 ------
 
 	HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
-	HAL_Delay(interval);
+	HAL_Delay(period);
 
   }
   /* USER CODE END 3 */
@@ -1287,6 +1293,8 @@ static void MX_USART3_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -1401,6 +1409,8 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
