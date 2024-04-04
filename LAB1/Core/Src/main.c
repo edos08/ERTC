@@ -60,6 +60,7 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
+TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim8;
 TIM_HandleTypeDef htim9;
 
@@ -96,6 +97,7 @@ static void MX_UART5_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM9_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 extern void initialise_monitor_handles(void);
 /* USER CODE END PFP */
@@ -103,12 +105,15 @@ extern void initialise_monitor_handles(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+int interval = 0;
+
 struct key_pair {
 	uint8_t column;
 	uint8_t row;
 };
 
-struct key_pair keys[] = {{254, 247},
+struct key_pair keys[] = {
+		{254, 247},
 		{253, 247},
 		{251, 247},
 		{254, 251},
@@ -116,41 +121,68 @@ struct key_pair keys[] = {{254, 247},
 		{251, 251},
 		{254, 253},
 		{253, 253},
-		{251, 253}};
+		{251, 253},
+		{253, 247}
+};
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  printf("Interrupt on pin (%d).\n", GPIO_Pin);
-  /* your code here */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
-  uint8_t data_column;
-  HAL_StatusTypeDef status;
+	printf("Interrupt on pin (%d).\n", GPIO_Pin);
+	/* your code here */
 
-  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-      printf("I2C communication error (%X).\n", status);
-  else
-	  printf("Data column: (%d).\n", data_column);
+	// ------ EXERCISE 1 & 2 ------
 
-  uint8_t data_row;
-  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-      printf("I2C communication error (%X).\n", status);
-  else
-	  printf("Data row: (%d).\n", data_row);
+	uint8_t data_column;
+	uint8_t data_row;
+	HAL_StatusTypeDef status;
 
-  struct key_pair key = {data_column, data_row};
+	// Read key data
+	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
+	if (status != HAL_OK)
+		printf("I2C communication error (%X).\n", status);
+	else
+		printf("Data column: (%d).\n", data_column);
 
-  int final_key = 0;
+	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
+	if (status != HAL_OK)
+		printf("I2C communication error (%X).\n", status);
+	else
+		printf("Data row: (%d).\n", data_row);
 
-  for (int i=0; i<9; i++) {
-	  if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
-		  final_key = i + 1;
+	// ------ EXERCISE 4 ------
+
+	// Find key by comparing data with keys array
+	struct key_pair key = {data_column, data_row};
+
+	int final_key = 0;
+
+	for (int i=0; i<9; i++) {
+		if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
+			final_key = i + 1;
+			break;
 	  }
-  }
+	}
 
-  printf("Key pressed: (%d).\n", final_key);
+	printf("Key pressed: (%d).\n", final_key);
 
+	interval = 1000/final_key;
+
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim->Instance == TIM6) {
+		// ------ EXERCISE 3 ------
+
+		uint8_t line_sensor_data;
+		HAL_StatusTypeDef status;
+
+		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
+		if (status != HAL_OK)
+			printf("I2C communication error (%X).\n", status);
+		else
+			printf("I2C line sensor data (%X).\n", line_sensor_data);
+
+	}
 }
 
 /* USER CODE END 0 */
@@ -161,6 +193,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
   uint8_t data;
   HAL_StatusTypeDef status;
@@ -200,6 +233,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_TIM9_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
   /* Disable LCD SPI SS */
@@ -334,6 +368,8 @@ int main(void)
 
   printf("Ready\n");
 
+  HAL_TIM_Base_Start_IT(&htim6);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -343,18 +379,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  // ------ EXERCISE 3 ------
-	  /*uint8_t line_sensor_data;
-	  HAL_StatusTypeDef status;
-	  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
-	  if (status != HAL_OK)
-		  printf("I2C communication error (%X).\n", status);
-	  else
-		  printf("I2C line sensor data (%X).\n", line_sensor_data);
 
-	  HAL_Delay(100);*/
+	// ------ EXERCISE 4 ------
 
-	  // ------ EXERCISE 4 ------
+	HAL_TogglePin(GPIOE, GPIO_PIN_5);
+	HAL_Delay(interval);
 
 
   }
@@ -928,6 +957,44 @@ static void MX_TIM5_Init(void)
 }
 
 /**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 1599;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 99;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
   * @brief TIM8 Initialization Function
   * @param None
   * @retval None
@@ -1248,6 +1315,8 @@ static void MX_USART3_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -1362,6 +1431,8 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
