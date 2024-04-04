@@ -62,7 +62,6 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim8;
-TIM_HandleTypeDef htim9;
 
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart5;
@@ -96,7 +95,6 @@ static void MX_UART4_Init(void);
 static void MX_UART5_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_TIM9_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 extern void initialise_monitor_handles(void);
@@ -122,8 +120,11 @@ struct key_pair keys[] = {
 		{254, 253},
 		{253, 253},
 		{251, 253},
-		{253, 247}
+		{251, 254}
 };
+
+int values[5];
+int counter = 0;
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
@@ -151,12 +152,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	// ------ EXERCISE 4 ------
 
-	// Find key by comparing data with keys array
+	// EASY PART
 	struct key_pair key = {data_column, data_row};
 
 	int final_key = 0;
 
-	for (int i=0; i<9; i++) {
+	for (int i=0; i<10; i++) {
 		if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
 			final_key = i + 1;
 			break;
@@ -165,22 +166,42 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	printf("Key pressed: (%d).\n", final_key);
 
-	interval = 1000/final_key;
+	/*if (final_key != 10)
+		interval = 1000/final_key;*/
+
+	// BONUS PART
+	int final_value = 0;
+
+	if (final_key != 10 && counter < 5) {
+		values[counter] = final_key;
+		counter++;
+	} else {
+		for (int i = 0; i < counter; i++) {
+			int power = pow(10, counter-i-1);
+			final_value = final_value + values[i]*power;
+		}
+		printf("Final frequency: (%d).\n", final_value);
+		counter = 0;
+		for (int i = 0; i < 5; i++)
+		    values[i] = 0;
+
+		interval = 1000/final_value;
+	}
 
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM6) {
-		// ------ EXERCISE 3 ------
 
-		uint8_t line_sensor_data;
+		// ------ EXERCISE 3 ------
+		/*uint8_t line_sensor_data;
 		HAL_StatusTypeDef status;
 
 		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
 		if (status != HAL_OK)
 			printf("I2C communication error (%X).\n", status);
 		else
-			printf("I2C line sensor data (%X).\n", line_sensor_data);
+			printf("I2C line sensor data (%X).\n", line_sensor_data);*/
 
 	}
 }
@@ -232,7 +253,6 @@ int main(void)
   MX_UART5_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
-  MX_TIM9_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
@@ -382,9 +402,8 @@ int main(void)
 
 	// ------ EXERCISE 4 ------
 
-	HAL_TogglePin(GPIOE, GPIO_PIN_5);
+	HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
 	HAL_Delay(interval);
-
 
   }
   /* USER CODE END 3 */
@@ -974,9 +993,9 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 1599;
+  htim6.Init.Prescaler = 16999;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 99;
+  htim6.Init.Period = 999;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
@@ -1083,52 +1102,6 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 2 */
   HAL_TIM_MspPostInit(&htim8);
-
-}
-
-/**
-  * @brief TIM9 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM9_Init(void)
-{
-
-  /* USER CODE BEGIN TIM9_Init 0 */
-
-  /* USER CODE END TIM9_Init 0 */
-
-  TIM_OC_InitTypeDef sConfigOC = {0};
-
-  /* USER CODE BEGIN TIM9_Init 1 */
-
-  /* USER CODE END TIM9_Init 1 */
-  htim9.Instance = TIM9;
-  htim9.Init.Prescaler = 0;
-  htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim9.Init.Period = 65535;
-  htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim9.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim9) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM9_Init 2 */
-
-  /* USER CODE END TIM9_Init 2 */
-  HAL_TIM_MspPostInit(&htim9);
 
 }
 
@@ -1329,7 +1302,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOG_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_OUT_SPI_CS_LCD_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_OUT_SPI_CS_LCD_Pin|GPIO_PIN_5|GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LD1_Pin|LD3_Pin|LD2_Pin, GPIO_PIN_RESET);
@@ -1337,8 +1310,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : GPIO_OUT_SPI_CS_SDCARD_Pin GPIO_OUT_SPI_CS_LCD_Pin */
-  GPIO_InitStruct.Pin = GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_OUT_SPI_CS_LCD_Pin;
+  /*Configure GPIO pins : GPIO_OUT_SPI_CS_SDCARD_Pin GPIO_OUT_SPI_CS_LCD_Pin PE5 PE6 */
+  GPIO_InitStruct.Pin = GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_OUT_SPI_CS_LCD_Pin|GPIO_PIN_5|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
