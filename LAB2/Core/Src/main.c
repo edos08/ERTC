@@ -23,8 +23,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-#include <string.h>
-#include "SX1509_Registers.h"
+#include "bno055.h"
+#include "ertc-datalogger.h"
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,8 +39,10 @@
 
 #define I2C_TIMEOUT 200
 
-#define SX1509_I2C_ADDR1 0x3E //	SX1509 Proxy Sensors I2C address
-#define SX1509_I2C_ADDR2 0x3F //	SX1509 Keypad I2C address
+// servos limits
+#define SERVO_MAX_VALUE 200
+#define SERVO_MIN_VALUE 100
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,14 +57,17 @@ I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi1;
+SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
-TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim9;
+TIM_HandleTypeDef htim11;
+TIM_HandleTypeDef htim13;
 
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart5;
@@ -70,11 +76,7 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-const char keypadLayout[4][4] = {
-    {'*', '0', '#', 'D'},
-    {'7', '8', '9', 'C'},
-    {'4', '5', '6', 'B'},
-    {'1', '2', '3', 'A'}};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -95,121 +97,73 @@ static void MX_UART4_Init(void);
 static void MX_UART5_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_TIM6_Init(void);
+static void MX_TIM9_Init(void);
+static void MX_SPI2_Init(void);
+static void MX_TIM11_Init(void);
+static void MX_TIM13_Init(void);
 /* USER CODE BEGIN PFP */
 extern void initialise_monitor_handles(void);
+uint32_t saturate(uint32_t val, uint32_t min, uint32_t max);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-int period = 0;
-
-struct key_pair {				// structure for key pairs
-	uint8_t column;
-	uint8_t row;
-};
-
-struct key_pair keys[] = {
-		{254, 247},				// 1
-		{253, 247},				// 2
-		{251, 247},				// 3
-		{254, 251},				// 4
-		{253, 251},				// 5
-		{251, 251},				// 6
-		{254, 253},				// 7
-		{253, 253},				// 8
-		{251, 253},				// 9
-		{251, 254}				// #
-};
-
-int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
-int counter = 0;				// counter for the values array
-
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-
-	printf("Interrupt on pin (%d).\n", GPIO_Pin);
-	/* your code here */
-
-	// ------ EXERCISE 1 & 2 ------
-
-	uint8_t data_column;
-	uint8_t data_row;
-	HAL_StatusTypeDef status;
-
-	// Read key data
-	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
-	if (status != HAL_OK)
-		printf("I2C communication error (%X).\n", status);
-	else
-		printf("Data column: (%d).\n", data_column);
-
-	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
-	if (status != HAL_OK)
-		printf("I2C communication error (%X).\n", status);
-	else
-		printf("Data row: (%d).\n", data_row);
-
-	// ------ EXERCISE 4 ------
-
-	// EASY PART
-	struct key_pair key = {data_column, data_row};
-
-	int final_key = 0;
-
-	for (int i=0; i<10; i++) {								// iterate through the keys array
-		if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
-			final_key = i + 1;
-			break;
-	  }
-	}
-
-	printf("Key pressed: (%d).\n", final_key);
-
-	/*if (final_key != 10)
-		period = 1000/final_key;*/
-
-	// BONUS PART
-	int final_value = 0;
-
-	if (final_key != 10 && counter < 5) {					// if the key is not # and the maximum number of digits is not reached
-		values[counter] = final_key;
-		counter++;
-	} else if (final_key == 10){							// if the key is #
-		for (int i = 0; i < counter; i++) {
-			int power = pow(10, counter-i-1);
-			final_value = final_value + values[i]*power;	// compute the final value using powers of 10
-		}
-		printf("Final frequency: (%d).\n", final_value);
-		counter = 0;
-		for (int i = 0; i < 5; i++)
-		    values[i] = 0;
-
-		period = 1000/final_value;
-	} else {												// if the maximum number of digits is reached
-		printf("Maximum number of digits reached. Please insert another sequence of numbers.\n");
-		counter = 0;
-		for (int i = 0; i < 5; i++)
-		    values[i] = 0;
-	}
-
+void error()
+{
+  // printf("An error has occurred\n")
+  while (1)
+    ;
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	if (htim->Instance == TIM6) {
+/*base structure to communicate with the imu*/
+struct bno055_t bno055;
 
-		// ------ EXERCISE 3 ------
-		/*uint8_t line_sensor_data;
-		HAL_StatusTypeDef status;
+/* structure used to read the accel xyz data output as m/s2 or mg */
+struct bno055_accel_double_t d_accel_xyz;
+/* structure used to read the gyro xyz data output as dps or rps */
+struct bno055_gyro_double_t d_gyro_xyz;
 
-		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
-		if (status != HAL_OK)
-			printf("I2C communication error (%X).\n", status);
-		else
-			printf("I2C line sensor data (%X).\n", line_sensor_data);*/
 
-	}
+int8_t bus_read_wrapper(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t r_len)
+{
+  HAL_StatusTypeDef status;
+  status = HAL_I2C_Mem_Read(&hi2c1, dev_addr << 1, reg_addr, 1, reg_data, r_len, I2C_TIMEOUT);
+  return (int8_t)status;
 }
+
+int8_t bus_write_wrapper(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t wr_len)
+{
+  HAL_StatusTypeDef status;
+  status = HAL_I2C_Mem_Write(&hi2c1, dev_addr << 1, reg_addr, 1, reg_data, wr_len, I2C_TIMEOUT);
+  return (int8_t)status;
+}
+
+void delay_wrapper(u32 delay)
+{
+  HAL_Delay(delay);
+}
+
+uint32_t saturate(uint32_t val, uint32_t min, uint32_t max){
+	if(val<min)
+		return min;
+	else if(val>max)
+		return max;
+	else
+		return val;
+}
+
+/* declare an ertc_dlog struct */
+struct ertc_dlog logger;
+struct datalog
+{
+	float w1, w2;
+	float u1, u2;
+} logger_data;
+
+
+int8_t pan = 0;
+int8_t tilt = 0;
+float angle = 0;
 
 /* USER CODE END 0 */
 
@@ -219,10 +173,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
-  uint8_t data;
-  HAL_StatusTypeDef status;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -231,14 +182,14 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  // initialise_monitor_handles();
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  initialise_monitor_handles();
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -258,142 +209,30 @@ int main(void)
   MX_UART5_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
-  MX_TIM6_Init();
+  MX_TIM9_Init();
+  MX_SPI2_Init();
+  MX_TIM11_Init();
+  MX_TIM13_Init();
   /* USER CODE BEGIN 2 */
+
+  /* Configure data logger  */
+  logger.uart_handle = huart3; // for serial
+  //logger.uart_handle = huart2; // for wifi
 
   /* Disable LCD SPI SS */
   HAL_GPIO_WritePin(GPIO_OUT_SPI_CS_LCD_GPIO_Port, GPIO_OUT_SPI_CS_LCD_Pin, GPIO_PIN_SET);
 
-  /* Disable EXTI4_IRQ during SX1509 initialization */
-  HAL_NVIC_DisableIRQ(EXTI4_IRQn);
+  bno055.bus_write = bus_write_wrapper;
+  bno055.bus_read = bus_read_wrapper;
+  bno055.delay_msec = delay_wrapper;
+  bno055.dev_addr = 0x28;
+  int32_t comres = bno055_init(&bno055);
 
-  /* Software reset */
-  data = 0x12;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
+  comres += bno055_set_power_mode(BNO055_POWER_MODE_NORMAL);
+  comres += bno055_set_operation_mode(BNO055_OPERATION_MODE_AMG);
 
-  data = 0x34;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  HAL_Delay(100);
-
-  /* Set KeyPad scanning engine */
-
-  /* Set RegClock to 0x40 (enable internal oscillator; 2MHz freq) */
-  data = 0x40;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_CLOCK, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set Bank A RegDir to 0xF0 (IO[0:3] as out) */
-  data = 0xF0;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set Bank B RegDir to 0x0F (IO[8:11] as in) */
-  data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set Bank A RegOpenDrain to 0x0F (IO[0:3] as open-drain outputs) */
-  data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_OPEN_DRAIN_A, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set Bank B RegPullup to 0x0F (pull-ups enabled on inputs IO[8:11]) */
-  data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_PULL_UP_B, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set Bank B RegDebounceEnable to 0x0F (enable debouncing on IO[8:11]) */
-  data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_ENABLE_B, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegDebounceConfig to 0x05 (16ms debounce time) */
-  data = 0x05;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_CONFIG, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegKeyConfig1 to 0x7D (8s auto-sleep; 32ms scan time per row) */
-  data = 0x7D;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_1, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegKeyConfig2 to 0x1B (4 rows; 4 columns) */
-  data = 0x1B;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_2, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Enable EXTI4_IRQ after SX1509 initialization */
-  HAL_Delay(100);
-  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
-
-  /* Disable EXTI2_IRQ during SX1509 initialization */
-  HAL_NVIC_DisableIRQ(EXTI2_IRQn);
-
-  /* Software reset */
-  data = 0x12;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  data = 0x34;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  HAL_Delay(100);
-
-  /* Set RegDirA to 0xFF (all IO of Bank A configured as inputs) */
-  data = 0xFF; // 0 = out; 1 = in
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegDirB to 0xFF (all IO of Bank B configured as inputs) */
-  data = 0xFF; // 0 = out; 1 = in
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegInterruptMaskA to 0x00 (all IO of Bank A will trigger an interrupt) */
-  data = 0x00;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_INTERRUPT_MASK_A, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegSenseHighA to 0xAA (IO[7:4] of Bank A will trigger an interrupt on falling edge) */
-  data = 0xAA;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_HIGH_A, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Set RegSenseLowA to 0xAA (IO[3:0] of Bank A will trigger an interrupt on falling edge) */
-  data = 0xAA;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_LOW_A, 1, &data, 1, I2C_TIMEOUT);
-  if (status != HAL_OK)
-    printf("I2C communication error (%X).\n", status);
-
-  /* Enable EXTI2_IRQ after SX1509 initialization */
-  HAL_Delay(100);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
-
-
-  printf("Ready\n");
-
-  HAL_TIM_Base_Start_IT(&htim6);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
 
   /* USER CODE END 2 */
 
@@ -404,12 +243,22 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  HAL_Delay(20);
+	  bno055_convert_double_accel_xyz_msq(&d_accel_xyz);
+	  bno055_convert_double_gyro_xyz_rps(&d_gyro_xyz);
 
-	// ------ EXERCISE 4 ------
+	  logger_data.w1 = 10;
+	  logger_data.w2 += 1.085;
+	  logger_data.u1 = -3.14;
+	  logger_data.u2 = 0.555683;
+	  ertc_dlog_send(&logger, &logger_data, sizeof(logger_data));
+	  ertc_dlog_update(&logger);
 
-	HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
-	HAL_Delay(period);
-
+	  /* update pan-tilt camera */
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3,
+					(uint32_t)saturate((150+pan*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // tilt
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,
+					(uint32_t)saturate((150+tilt*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // pan
   }
   /* USER CODE END 3 */
 }
@@ -660,6 +509,45 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief SPI2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI2_Init(void)
+{
+
+  /* USER CODE BEGIN SPI2_Init 0 */
+
+  /* USER CODE END SPI2_Init 0 */
+
+  /* USER CODE BEGIN SPI2_Init 1 */
+
+  /* USER CODE END SPI2_Init 1 */
+  /* SPI2 parameter configuration*/
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_SLAVE;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.NSS = SPI_NSS_HARD_INPUT;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 7;
+  hspi2.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi2.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI2_Init 2 */
+
+  /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
   * @brief TIM1 Initialization Function
   * @param None
   * @retval None
@@ -680,9 +568,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = TIM1_PSC_VALUE;
+  htim1.Init.Prescaler = 959;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = TIM1_ARR_VALUE;
+  htim1.Init.Period = 1999;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -981,44 +869,6 @@ static void MX_TIM5_Init(void)
 }
 
 /**
-  * @brief TIM6 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM6_Init(void)
-{
-
-  /* USER CODE BEGIN TIM6_Init 0 */
-
-  /* USER CODE END TIM6_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 16999;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 999;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM6_Init 2 */
-
-  /* USER CODE END TIM6_Init 2 */
-
-}
-
-/**
   * @brief TIM8 Initialization Function
   * @param None
   * @retval None
@@ -1039,9 +889,9 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = TIM8_PSC_VALUE;
+  htim8.Init.Prescaler = 0;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = TIM8_ARR_VALUE;
+  htim8.Init.Period = 65535;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -1111,6 +961,144 @@ static void MX_TIM8_Init(void)
 }
 
 /**
+  * @brief TIM9 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM9_Init(void)
+{
+
+  /* USER CODE BEGIN TIM9_Init 0 */
+
+  /* USER CODE END TIM9_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM9_Init 1 */
+
+  /* USER CODE END TIM9_Init 1 */
+  htim9.Instance = TIM9;
+  htim9.Init.Prescaler = 0;
+  htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim9.Init.Period = 65535;
+  htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim9.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim9) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM9_Init 2 */
+
+  /* USER CODE END TIM9_Init 2 */
+  HAL_TIM_MspPostInit(&htim9);
+
+}
+
+/**
+  * @brief TIM11 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM11_Init(void)
+{
+
+  /* USER CODE BEGIN TIM11_Init 0 */
+
+  /* USER CODE END TIM11_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM11_Init 1 */
+
+  /* USER CODE END TIM11_Init 1 */
+  htim11.Instance = TIM11;
+  htim11.Init.Prescaler = 0;
+  htim11.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim11.Init.Period = 65535;
+  htim11.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim11.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim11) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim11) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim11, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM11_Init 2 */
+
+  /* USER CODE END TIM11_Init 2 */
+  HAL_TIM_MspPostInit(&htim11);
+
+}
+
+/**
+  * @brief TIM13 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM13_Init(void)
+{
+
+  /* USER CODE BEGIN TIM13_Init 0 */
+
+  /* USER CODE END TIM13_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM13_Init 1 */
+
+  /* USER CODE END TIM13_Init 1 */
+  htim13.Instance = TIM13;
+  htim13.Init.Prescaler = 0;
+  htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim13.Init.Period = 65535;
+  htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim13) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim13) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim13, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM13_Init 2 */
+
+  /* USER CODE END TIM13_Init 2 */
+  HAL_TIM_MspPostInit(&htim13);
+
+}
+
+/**
   * @brief UART4 Initialization Function
   * @param None
   * @retval None
@@ -1126,7 +1114,7 @@ static void MX_UART4_Init(void)
 
   /* USER CODE END UART4_Init 1 */
   huart4.Instance = UART4;
-  huart4.Init.BaudRate = 9600;
+  huart4.Init.BaudRate = 115200;
   huart4.Init.WordLength = UART_WORDLENGTH_8B;
   huart4.Init.StopBits = UART_STOPBITS_1;
   huart4.Init.Parity = UART_PARITY_NONE;
@@ -1293,8 +1281,6 @@ static void MX_USART3_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -1307,7 +1293,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOG_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_OUT_SPI_CS_LCD_Pin|GPIO_PIN_5|GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_PIN_3|GPIO_OUT_SPI_CS_LCD_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LD1_Pin|LD3_Pin|LD2_Pin, GPIO_PIN_RESET);
@@ -1315,26 +1301,26 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : GPIO_OUT_SPI_CS_SDCARD_Pin GPIO_OUT_SPI_CS_LCD_Pin PE5 PE6 */
-  GPIO_InitStruct.Pin = GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_OUT_SPI_CS_LCD_Pin|GPIO_PIN_5|GPIO_PIN_6;
+  /*Configure GPIO pins : GPIO_OUT_SPI_CS_SDCARD_Pin PE3 GPIO_OUT_SPI_CS_LCD_Pin */
+  GPIO_InitStruct.Pin = GPIO_OUT_SPI_CS_SDCARD_Pin|GPIO_PIN_3|GPIO_OUT_SPI_CS_LCD_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : GPIO_EXTI3_IMU_IRQ_Pin GPIO_EXTI8_USER_BUT1_IRQ_Pin GPIO_EXTI9_USER_BUT2_IRQ_Pin GPIO_EXTI10_BUMP1_IRQ_Pin
-                           GPIO_EXTI11_BUMP2_IRQ_Pin GPIO_EXTI12_BUMP3_IRQ_Pin GPIO_EXTI13_BUMP4_IRQ_Pin */
-  GPIO_InitStruct.Pin = GPIO_EXTI3_IMU_IRQ_Pin|GPIO_EXTI8_USER_BUT1_IRQ_Pin|GPIO_EXTI9_USER_BUT2_IRQ_Pin|GPIO_EXTI10_BUMP1_IRQ_Pin
-                          |GPIO_EXTI11_BUMP2_IRQ_Pin|GPIO_EXTI12_BUMP3_IRQ_Pin|GPIO_EXTI13_BUMP4_IRQ_Pin;
+  /*Configure GPIO pin : GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin */
+  GPIO_InitStruct.Pin = GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIO_EXTI2_PROXY_TOF_SENS_IRQ_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : GPIO_EXTI3_IMU_IRQ_Pin GPIO_EXTI4_KPAD_IRQ_Pin GPIO_EXTI8_USER_BUT1_IRQ_Pin GPIO_EXTI9_USER_BUT2_IRQ_Pin
+                           GPIO_EXTI12_BUMP1_IRQ_Pin GPIO_EXTI13_BUMP2_IRQ_Pin GPIO_EXTI14_BUMP3_IRQ_Pin GPIO_EXTI15_BUMP4_IRQ_Pin */
+  GPIO_InitStruct.Pin = GPIO_EXTI3_IMU_IRQ_Pin|GPIO_EXTI4_KPAD_IRQ_Pin|GPIO_EXTI8_USER_BUT1_IRQ_Pin|GPIO_EXTI9_USER_BUT2_IRQ_Pin
+                          |GPIO_EXTI12_BUMP1_IRQ_Pin|GPIO_EXTI13_BUMP2_IRQ_Pin|GPIO_EXTI14_BUMP3_IRQ_Pin|GPIO_EXTI15_BUMP4_IRQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : GPIO_EXTI4_KPAD_IRQ_Pin */
-  GPIO_InitStruct.Pin = GPIO_EXTI4_KPAD_IRQ_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIO_EXTI4_KPAD_IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RMII_MDC_Pin RMII_RXD0_Pin RMII_RXD1_Pin */
   GPIO_InitStruct.Pin = RMII_MDC_Pin|RMII_RXD0_Pin|RMII_RXD1_Pin;
@@ -1403,14 +1389,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI4_IRQn, 1, 0);
-  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
