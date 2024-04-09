@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "SX1509_Registers.h"
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -103,94 +104,87 @@ extern void initialise_monitor_handles(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int period = 0;
+int frequency = 0;
+uint8_t values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
+uint8_t counter = 0;				// counter for the values array
 
-struct key_pair {				// structure for key pairs
-	uint8_t column;
-	uint8_t row;
-};
+uint8_t extractIndex(uint8_t byte_sequence) {
+	uint8_t k = 0;
+	while ((byte_sequence & 1) != 1) {
+		byte_sequence >>= 1;
+		k++;
+	}
 
-struct key_pair keys[] = {
-		{254, 247},				// 1
-		{253, 247},				// 2
-		{251, 247},				// 3
-		{254, 251},				// 4
-		{253, 251},				// 5
-		{251, 251},				// 6
-		{254, 253},				// 7
-		{253, 253},				// 8
-		{251, 253},				// 9
-		{251, 254}				// #
-};
-
-int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
-int counter = 0;				// counter for the values array
+	return k;
+}
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	printf("Interrupt on pin (%d).\n", GPIO_Pin);
 	/* your code here */
 
-	// ------ EXERCISE 1 & 2 ------
+	if (GPIO_Pin == GPIO_EXTI4_KPAD_IRQ_Pin) {
 
-	uint8_t data_column;
-	uint8_t data_row;
-	HAL_StatusTypeDef status;
+		// ------ EXERCISE 1 ------
 
-	// Read key data
-	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
-	if (status != HAL_OK)
-		printf("I2C communication error (%X).\n", status);
-	else
-		printf("Data column: (%d).\n", data_column);
+		uint8_t data_column;
+		uint8_t data_row;
+		HAL_StatusTypeDef status;
 
-	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
-	if (status != HAL_OK)
-		printf("I2C communication error (%X).\n", status);
-	else
-		printf("Data row: (%d).\n", data_row);
-
-	// ------ EXERCISE 4 ------
-
-	// EASY PART
-	struct key_pair key = {data_column, data_row};
-
-	int final_key = 0;
-
-	for (int i=0; i<10; i++) {								// iterate through the keys array
-		if ((keys[i].column == key.column) && (keys[i].row == key.row)) {
-			final_key = i + 1;
+		// Read key data
+		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
+		if (status != HAL_OK) {
+			printf("I2C communication error (%X).\n", status);
 			break;
-	  }
-	}
-
-	printf("Key pressed: (%d).\n", final_key);
-
-	/*if (final_key != 10)
-		period = 1000/final_key;*/
-
-	// BONUS PART
-	int final_value = 0;
-
-	if (final_key != 10 && counter < 5) {					// if the key is not # and the maximum number of digits is not reached
-		values[counter] = final_key;
-		counter++;
-	} else if (final_key == 10){							// if the key is #
-		for (int i = 0; i < counter; i++) {
-			int power = pow(10, counter-i-1);
-			final_value = final_value + values[i]*power;	// compute the final value using powers of 10
 		}
-		printf("Final frequency: (%d).\n", final_value);
-		counter = 0;
-		for (int i = 0; i < 5; i++)
-		    values[i] = 0;
 
-		period = 1000/final_value;
-	} else {												// if the maximum number of digits is reached
-		printf("Maximum number of digits reached. Please insert another sequence of numbers.\n");
-		counter = 0;
-		for (int i = 0; i < 5; i++)
-		    values[i] = 0;
+		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
+		if (status != HAL_OK) {
+			printf("I2C communication error (%X).\n", status);
+			break;
+		}
+
+		// ------ EXERCISE 2 ------
+
+		// Convert key data into indexes
+		uint8_t col_index = extractIndex(~data_column);
+		uint8_t row_index = extractIndex(~data_row);
+
+		char key = keypadLayout[row_index][col_index];
+
+		printf("The following button has been pressed: (%X).\n", key);
+
+		// ------ EXERCISE 4 ------
+
+		// EASY PART
+
+		/*if (key >= '0' && key <= '9') {
+			frequency = key - '0';
+		}*/
+
+		// BONUS PART
+
+		if (key >= '0' && key <= '9' && counter < 5) {					// if the key is not # and the maximum number of digits is not reached
+			values[counter] = key - '0';
+			counter++;
+		} else if (key == '#'){											// if the key is #
+			int final_freq = 0;
+			for (uint8_t i = 0; i < counter; i++) {
+				int power = pow(10, counter-i-1);
+				final_freq = final_freq + values[i]*power;				// compute the final value using powers of 10
+			}
+			printf("Final frequency: (%d).\n", final_freq);
+			counter = 0;
+			for (uint8_t i = 0; i < 5; i++)
+				values[i] = 0;
+
+			frequency = final_freq;
+		} else {														// if the maximum number of digits is reached
+			printf("Maximum number of digits reached. Please insert another sequence of numbers.\n");
+			counter = 0;
+			for (uint8_t i = 0; i < 5; i++)
+				values[i] = 0;
+		}
 	}
 
 }
@@ -206,7 +200,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		if (status != HAL_OK)
 			printf("I2C communication error (%X).\n", status);
 		else
-			printf("I2C line sensor data (%X).\n", line_sensor_data);*/
+			printf("I2C line sensor data (%X).\n", line_sensor_data);
+
+		uint8_t lines_status[8] = 0;
+
+		for (uint8_t i=0; i<8; i++) {
+			if (line_sensor_data & 1) {
+				lines_status[i] = 1;
+				printf("Sensor line (%d) has detected something.\n", i);
+			}
+			line_sensor_data >>= 1;
+		}*/
 
 	}
 }
@@ -408,7 +412,7 @@ int main(void)
 	// ------ EXERCISE 4 ------
 
 	HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
-	HAL_Delay(period);
+	HAL_Delay(1000/frequency);
 
   }
   /* USER CODE END 3 */
