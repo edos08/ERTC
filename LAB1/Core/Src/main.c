@@ -135,13 +135,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
 		if (status != HAL_OK) {
 			printf("I2C communication error (%X).\n", status);
-			break;
+			return;
 		}
 
 		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
 		if (status != HAL_OK) {
 			printf("I2C communication error (%X).\n", status);
-			break;
+			return;
 		}
 
 		// ------ EXERCISE 2 ------
@@ -164,14 +164,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 		// BONUS PART
 
-		if (key >= '0' && key <= '9' && counter < 5) {					// if the key is not # and the maximum number of digits is not reached
+		if (key >= '0' && key <= '9' && counter < 5) {			// if the key is not # and the maximum number of digits is not reached
 			values[counter] = key - '0';
 			counter++;
-		} else if (key == '#'){											// if the key is #
+		} else if (key == '#'){									// if the key is #
 			int final_freq = 0;
 			for (uint8_t i = 0; i < counter; i++) {
 				int power = pow(10, counter-i-1);
-				final_freq = final_freq + values[i]*power;				// compute the final value using powers of 10
+				final_freq = final_freq + values[i]*power;		// compute the final value using powers of 10
 			}
 			printf("Final frequency: (%d).\n", final_freq);
 			counter = 0;
