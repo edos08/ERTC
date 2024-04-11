@@ -258,13 +258,16 @@ int main(void)
 
 	  angle = estimate_angle(d_accel_xyz.y);
 	  tilt =- angle;
+	  int prop = 2;
+	  if (d_gyro_xyz.z > 0.1 || d_gyro_xyz.z < -0.1)
+		  pan -= prop*(180/M_PI)*d_gyro_xyz.z*0.02;
 
 	  logger_data.ax = d_accel_xyz.x;
 	  logger_data.ay = d_accel_xyz.y;
 	  logger_data.az = d_accel_xyz.z;
 
-	  logger_data.gx = d_gyro_xyz.x;
-	  logger_data.gy = d_gyro_xyz.y;
+	  logger_data.gx = 0;
+	  logger_data.gy = 0;
 	  logger_data.gz = d_gyro_xyz.z;
 
 	  logger_data.ctilt = tilt;
@@ -277,9 +280,9 @@ int main(void)
 
 	  /* update pan-tilt camera */
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3,
+					(uint32_t)saturate((150+pan*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // pan
+	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,
 					(uint32_t)saturate((150+tilt*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // tilt
-	/*__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,
-					(uint32_t)saturate((150+pan*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE));*/ // pan
   }
   /* USER CODE END 3 */
 }
