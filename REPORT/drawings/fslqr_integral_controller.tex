@@ -1,0 +1,39 @@
+\begin{tikzpicture}
+    \draw (4.2,-6) rectangle ++(3.5,1.5);%
+    \node at (5.95,-5) {$\dot{x} = \boldsymbol{A}_Q x + \boldsymbol{B}_Q u$};%
+    \node at (5.95,-5.5) {$y = \boldsymbol{I} x + \boldsymbol{0} u$};%
+    \draw (-1,0) -- ++(0,0.5) -- ++(1.2,-0.5) -- ++(-1.2,-0.5) -- cycle;
+    \node at (-0.6,0) {$\boldsymbol{N}_{\boldsymbol{x}_A}$};
+    \draw (0,2.5) -- ++(0,0.5) -- ++(1.2,-0.5) -- ++(-1.2,-0.5) -- cycle;
+    \node at (0.4,2.5) {$N_u$};
+    \draw (4,0) -- ++(0,0.5) -- ++(1.2,-0.5) -- ++(-1.2,-0.5) -- cycle;
+    \node at (4.4,0) {$\boldsymbol{K}_A$};
+    \draw (-1,-2.5) -- ++(0,0.5) -- ++(1.2,-0.5) -- ++(-1.2,-0.5) -- cycle;
+    \node at (-0.6,-2.5) {$K_I$};
+    \draw (4,-3) rectangle ++(0.8,1) node[midway]{$\displaystyle{\frac{1}{s}}$};
+    \draw (1.8,0) circle (0.2cm);
+    \draw (6.5,0) circle (0.2cm);
+    \draw (-2,-2.5) circle (0.2cm);
+    \draw[fill=black] (3.5,-3.75) rectangle (3.3,-5.5);%
+    \draw[fill=black] (8.5,-4) circle (0.08cm);%
+    \draw[fill=black] (-3,0) circle (0.08cm);
+    %
+    \draw[-latex,thick] (9,-4) -- (3.5,-4) node[at start,above]{$\boldsymbol{x}$};%
+    \draw[-latex,thick] (8.5,-4) |- (7.7,-5.25);%
+    \draw[-latex,thick] (4.2,-5.25) -- (3.5,-5.25) node[midway,above]{$\boldsymbol{x}_Q$};%
+    \draw[-latex,thick] (3.3,-4.625) -| (1.8,-0.2) node[pos=0.95,right]{$-$}  node[near start,above]{$\boldsymbol{x}_A$};%
+    \draw[-latex] (-5,0) -- (-1,0) node[at start,above]{$\vartheta _{ref}$};
+    \draw[-latex,thick] (0.2,0) -- (1.6,0);
+    \draw[-latex,thick] (2,0) -- (4,0);
+    \draw[-latex] (5.2,0) -- (6.3,0);
+    \draw[-latex] (6.7,0) -- (9,0) node[near end,above]{$u$};
+    \draw[-latex] (-3,0) |- (0,2.5);
+    \draw[-latex] (1.2,2.5) -| (6.5,0.2);
+    \draw[-latex] (-1.8,-2.5) -- (-1,-2.5);
+    \draw (0.2,-2.5) -- (1.6,-2.5);
+    \draw[-latex] (2,-2.5) -- (4,-2.5);
+    \draw[-latex] (4.8,-2.5) -| (6.5,-0.2);
+    \draw (1.6,-2.5) arc (180:0:0.2cm);
+    \draw[-latex] (9,-7) -| (-2,-2.7) node[pos=0.95, right]{$-$} node[at start,above]{$y$};
+    \draw[-latex] (-3,0) |- (-2.2,-2.5);
+\end{tikzpicture}
