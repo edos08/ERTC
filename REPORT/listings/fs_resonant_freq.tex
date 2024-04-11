@@ -1,0 +1,16 @@
+\begin{lstlisting}[caption={Calculation of the Resonant Frequency}, label={lst:fs-resonant-freq}]
+sysP = ss(A_1, B_1, C, 0);
+
+sys_poles = pole(sysP);
+s = tf('s');
+
+den = 1;
+for index = 1:height(sys_poles)
+    if (imag(sys_poles(index)) ~= 0)
+        den = den * (s - sys_poles(index));
+    end
+end
+
+den_array = cell2mat(den.Numerator);
+w_0 = sqrt(den_array(1, end));
+\end{lstlisting}

@@ -1,0 +1,34 @@
+\begin{lstlisting}[caption={Pid Design Code.}, label={lst:pid_design}]
+%% DESIGN OF PID CONTROLLER
+
+ts_5 = 0.85;    % [s]
+M_p = 0.3;      % 30%
+alpha = 4;
+
+delta = (log(1/M_p))/(sqrt(pi^2+log(1/M_p)*log(1/M_p)));
+
+phi_m = atan((2*delta)/(sqrt(sqrt(1+4*(delta ^4)) - 2*(delta ^2))));
+
+w_gc = 3/(delta*ts_5);
+
+T_L = 1/(10*w_gc);
+AW.T_W = ts_5/5;
+AW.K_W = 4/AW.T_W;
+
+D_tau = tf([Jeq*mld.Jb Jeq*mld.Bb+mld.Jb*Beq Beq*mld.Bb+mld.k*(Jeq+mld.Jb/gbox.N/gbox.N) mld.k*(Beq+mld.Bb/gbox.N/gbox.N)], 1);
+sysPh_den = tf([mot.L mot.R+sens.curr.Rs], 1)*D_tau + mot.Kt*mot.Ke*tf([mld.Jb mld.Bb mld.k], 1);
+sysPh = tf(drv.dcgain, [drv.Tc 1])*tf(1, [gbox.N 1])*tf([mot.Kt*mld.Jb mot.Kt*mld.Bb mot.Kt*mld.k], 1)*(1/sysPh_den);
+
+z = freqresp(sysPh, w_gc);
+
+mag = abs(z);
+phi = angle(z);
+
+d_k = 1/(abs(mag));
+d_phi = -pi + phi_m - phi;
+
+controller.Kp = d_k*cos(d_phi);
+controller.Kd = controller.Kp*(tan(d_phi) + sqrt(tan(d_phi)^2 + 4/alpha))/(2*w_gc);
+controller.Ki = controller.Kp^2/(alpha*controller.Kd);
+\end{lstlisting}
+\pagebreak
