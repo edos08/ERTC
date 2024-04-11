@@ -6,7 +6,7 @@ instrreset
 disp("List of ports: ")
 disp(serialportlist);
 
-prompt = "Which COM port is it needed?";
+prompt = "Which COM port is it needed? ";
 port = input(prompt, "s");
 if isempty(port)
     port = 'COM1';
