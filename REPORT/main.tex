@@ -1,0 +1,41 @@
+\documentclass[11pt]{article}
+
+% -------------------------------------------------------------------------------- %
+\usepackage{mylibrary}
+
+\begin{document}
+
+\pagenumbering{gobble}
+
+\include{cover.tex}
+
+\tableofcontents
+
+\newpage
+\setcounter{page}{1}
+\pagenumbering{arabic}
+
+%	SIunitx config params
+%\sisetup{
+%math-rm=\mathrm, 
+%text-rm=\rmfamily
+%}
+
+% -------------------------------------------------------------------------------- %
+
+% -------------------------------------------------------------------------------- %
+\include{chapters/introduction.tex}
+
+\include{chapters/lab1.tex}
+
+\include{chapters/lab2.tex}
+
+\include{chapters/lab3.tex}
+
+\include{chapters/lab4.tex}
+
+\include{appendix.tex}
+
+\label{LastPage}
+\end{document}  
+

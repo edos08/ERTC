@@ -1,0 +1,79 @@
+% -------------------------------------------------------------------------------- %
+\appendix
+\section{Appendix}
+
+
+
+\subsection{Matlab code}
+\input{listings/est_param.tex}
+
+\input{listings/pid_code.tex}
+
+\input{listings/statespace_code.tex}
+
+\input{listings/lqr_code}
+\pagebreak
+\subsection{Additional computations for the estimation of parameters} \label{estimation}
+Given the set of measurements \(Z^M=\{t_k , |\vartheta_d(t_k)|\}\) with \(k = 0,1,...,M-1\), which consists of \(M\) consecutive peaks of the absolute value of the natural response, it is possible to introduce the following notation
+\begin{equation}
+    z = \boldsymbol{\varphi}_k^T\boldsymbol{\theta}
+\end{equation}
+where
+ \begin{equation}
+    \label{eq : vectors}
+        \boldsymbol{\varphi}_{k}^T = [-k, 1], \qquad 
+        \boldsymbol{\theta} = [a, b]^T.
+    \end{equation}
+Then, the LS fitting can be determined by finding the value of \(\boldsymbol{\theta}\) that minimises the quadratic error
+\begin{equation}
+\label{eq:cost}
+    V(\boldsymbol{\theta}) = \sum_{k=0}^{M-1} (log|\vartheta_d(t_k)|-\boldsymbol{\varphi}_{k}^T \boldsymbol{\theta})^2
+\end{equation}
+\\Using the notation
+\begin{equation}
+    \boldsymbol{Y} =
+    \begin{bmatrix} log|\vartheta_d(t_0)| \\ log|\vartheta_d(t_1)|\\ \vdots \\ log|\vartheta_d(t_{M-1})|
+    \end{bmatrix}
+    \in \mathbb{R}^{M\times1},\qquad
+    \boldsymbol{\Phi} = 
+    \begin{bmatrix} \boldsymbol{\varphi}_{0}^T \\ \boldsymbol{\varphi}_{1}^T \\ \vdots \\ \boldsymbol{\varphi}_{M-1}^T  
+    \end{bmatrix}
+    \in \mathbb{R}^{M\times2},
+\end{equation}
+the cost function (\ref{eq:cost}) can be rewritten as
+\begin{equation}
+\label{eq:costrew}
+     V(\boldsymbol{\theta}) = [\boldsymbol{Y}-\boldsymbol{\Phi}\boldsymbol{\theta}]^T[\boldsymbol{Y}-\boldsymbol{\Phi}\boldsymbol{\theta}].
+\end{equation}
+By finding the least squares (LS) solution that minimises (\ref{eq:costrew})
+\begin{equation}
+    \boldsymbol{\hat{\theta}}_{LS} = [\hat{a}, \hat{b}]^T = (\boldsymbol{\Phi}^T\boldsymbol{\Phi})^{-1}\boldsymbol{\Phi}^T\boldsymbol{Y}.
+\end{equation}
+It is now possible to compute the estimate of the damping factor as
+\begin{equation}
+    \hat{\delta}=\frac{\hat{a}}{\sqrt{\pi^2 + \hat{a}}} 
+\end{equation}
+and of the frequency \(\omega\) as
+\begin{equation}
+    \hat{\omega} = \frac{1}{M} \sum_{k=0}^{M-1} \frac{\pi}{T_k}
+\end{equation}
+where \(T_k = t_{k+1}-t_k\) denote the measured
+time interval between two consecutive peaks.
+Finally an estimate of the natural frequency \(\omega_n\) is obtained as follows
+\begin{equation}
+    \hat{\omega}_n = \frac{\hat{\omega}}{\sqrt{1-\hat{\delta}^2}}.
+\end{equation}
+Once \(\hat{\omega}_n\) and \(\hat{\delta}\) have been estimated using the regression, the final step is to compute \(\hat{B}_b\) and \(\hat{k}\), using the nominal value \(J_b\):
+
+ \begin{equation}
+    \label{eq : params}
+        \hat{B}_b = J_b\times(2\hat{\delta}\hat{\omega}_n), \qquad 
+        \hat{k} = J_b\times(\hat{\omega}_n).
+    \end{equation}
+
+\subsection{Data sheet}
+All the parameters used for the calculations are listed in the next listing:
+\input{listings/global_params.tex}
+
+
+
