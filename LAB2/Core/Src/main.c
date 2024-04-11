@@ -154,16 +154,23 @@ uint32_t saturate(uint32_t val, uint32_t min, uint32_t max){
 
 /* declare an ertc_dlog struct */
 struct ertc_dlog logger;
+
+// ------ EXERCISE 1 ------
 struct datalog
 {
-	float w1, w2;
-	float u1, u2;
+	float ax, ay, az;
+	float gx, gy, gz;
+	float ctilt, cpan;
 } logger_data;
-
+// ------------------------
 
 int8_t pan = 0;
 int8_t tilt = 0;
 float angle = 0;
+
+float estimate_angle(double a) {
+	return (180/M_PI)*asin(a/9.81);
+}
 
 /* USER CODE END 0 */
 
@@ -247,18 +254,32 @@ int main(void)
 	  bno055_convert_double_accel_xyz_msq(&d_accel_xyz);
 	  bno055_convert_double_gyro_xyz_rps(&d_gyro_xyz);
 
-	  logger_data.w1 = 10;
-	  logger_data.w2 += 1.085;
-	  logger_data.u1 = -3.14;
-	  logger_data.u2 = 0.555683;
+	  // ------ EXERCISE 1 ------
+
+	  angle = estimate_angle(d_accel_xyz.y);
+	  tilt =- angle;
+
+	  logger_data.ax = d_accel_xyz.x;
+	  logger_data.ay = d_accel_xyz.y;
+	  logger_data.az = d_accel_xyz.z;
+
+	  logger_data.gx = d_gyro_xyz.x;
+	  logger_data.gy = d_gyro_xyz.y;
+	  logger_data.gz = d_gyro_xyz.z;
+
+	  logger_data.ctilt = tilt;
+	  logger_data.cpan = pan;
+
+	  // ------------------------
+
 	  ertc_dlog_send(&logger, &logger_data, sizeof(logger_data));
 	  ertc_dlog_update(&logger);
 
 	  /* update pan-tilt camera */
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3,
-					(uint32_t)saturate((150+pan*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // tilt
-	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,
-					(uint32_t)saturate((150+tilt*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // pan
+					(uint32_t)saturate((150+tilt*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE)); // tilt
+	/*__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,
+					(uint32_t)saturate((150+pan*(50.0/45.0)), SERVO_MIN_VALUE, SERVO_MAX_VALUE));*/ // pan
   }
   /* USER CODE END 3 */
 }
