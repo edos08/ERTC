@@ -152,7 +152,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 		char key = keypadLayout[row_index][col_index];
 
-		printf("The following button has been pressed: (%X).\n", key);
+		printf("The following button has been pressed: (%c).\n", key);
 
 		// ------ EXERCISE 4 ------
 
@@ -173,7 +173,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 				int power = pow(10, counter-i-1);
 				final_freq = final_freq + values[i]*power;		// compute the final value using powers of 10
 			}
-			printf("Final frequency: (%d).\n", final_freq);
+			printf("Final frequency: %d Hz.\n", final_freq);
 			counter = 0;
 			for (int i = 0; i < 5; i++)
 				values[i] = 0;
