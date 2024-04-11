@@ -104,12 +104,12 @@ extern void initialise_monitor_handles(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int frequency = 0;
-uint8_t values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
-uint8_t counter = 0;				// counter for the values array
+int frequency = 1;
+int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
+int counter = 0;				// counter for the values array
 
 uint8_t extractIndex(uint8_t byte_sequence) {
-	uint8_t k = 0;
+	int k = 0;
 	while ((byte_sequence & 1) != 1) {
 		byte_sequence >>= 1;
 		k++;
@@ -169,20 +169,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 			counter++;
 		} else if (key == '#'){									// if the key is #
 			int final_freq = 0;
-			for (uint8_t i = 0; i < counter; i++) {
+			for (int i = 0; i < counter; i++) {
 				int power = pow(10, counter-i-1);
 				final_freq = final_freq + values[i]*power;		// compute the final value using powers of 10
 			}
 			printf("Final frequency: (%d).\n", final_freq);
 			counter = 0;
-			for (uint8_t i = 0; i < 5; i++)
+			for (int i = 0; i < 5; i++)
 				values[i] = 0;
 
 			frequency = final_freq;
-		} else {														// if the maximum number of digits is reached
+		} else {												// if the maximum number of digits is reached
 			printf("Maximum number of digits reached. Please insert another sequence of numbers.\n");
 			counter = 0;
-			for (uint8_t i = 0; i < 5; i++)
+			for (int i = 0; i < 5; i++)
 				values[i] = 0;
 		}
 	}
