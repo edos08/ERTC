@@ -168,8 +168,23 @@ int8_t pan = 0;
 int8_t tilt = 0;
 float angle = 0;
 
-float estimate_angle(double a) {
+float estimate_y_angle(double a) {
 	return (180/M_PI)*asin(a/9.81);
+}
+
+int sign(float x) {
+	if (x > 0) return 1;
+	if (x < 0) return -1;
+	return 0;
+}
+
+float compute_angle(double y, double z) {
+	float y_angle = (180/M_PI)*asin(y/9.81);
+	float z_angle = (180/M_PI)*acos(z/9.81);
+
+	z_angle = sign(y_angle)*(180 - z_angle);
+
+	return 0.5*(y_angle + z_angle);
 }
 
 /* USER CODE END 0 */
@@ -256,11 +271,7 @@ int main(void)
 
 	  // ------ EXERCISE 1 ------
 
-	  angle = estimate_angle(d_accel_xyz.y);
-	  tilt =- angle;
-	  int prop = 2;
-	  if (d_gyro_xyz.z > 0.1 || d_gyro_xyz.z < -0.1)
-		  pan -= prop*(180/M_PI)*d_gyro_xyz.z*0.02;
+	  tilt =- estimate_y_angle(d_accel_xyz.y);
 
 	  logger_data.ax = d_accel_xyz.x;
 	  logger_data.ay = d_accel_xyz.y;
@@ -271,12 +282,21 @@ int main(void)
 	  logger_data.gz = d_gyro_xyz.z;
 
 	  logger_data.ctilt = tilt;
-	  logger_data.cpan = pan;
 
-	  // ------------------------
+	  // ------- BONUS 1 -------
+
+	  int prop = 2;
+	  if (d_gyro_xyz.z > 0.1 || d_gyro_xyz.z < -0.1)
+		  pan -= prop*(180/M_PI)*d_gyro_xyz.z*0.02;
 
 	  ertc_dlog_send(&logger, &logger_data, sizeof(logger_data));
 	  ertc_dlog_update(&logger);
+
+	  logger_data.cpan = pan;
+
+	  // ------- BONUS 2 -------
+
+	  tilt =- compute_angle(d_accel_xyz.y, d_accel_xyz.z);
 
 	  /* update pan-tilt camera */
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3,
