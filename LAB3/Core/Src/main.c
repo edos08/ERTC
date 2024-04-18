@@ -104,21 +104,39 @@ static void MX_TIM6_Init(void);
 /* USER CODE BEGIN 0 */
 
 struct datalog {
-	float w1, w2;
-	float u1, u2;
+	float diffcount;
 } data;
-
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	/* Speed ctrl routine */
-	if(htim->Instance == TIM6)
-	{
+	if(htim->Instance == TIM6) {
+
+		uint32_t TIM3_CurrentCount;
+		int32_t TIM3_DiffCount;
+		static uint32_t TIM3_PreviousCount = 0;
+
+		TIM3_CurrentCount = __HAL_TIM_GET_COUNTER(&htim3);
+
+		/* evaluate increment of TIM3 counter from previous count */
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
+			/* check for counter underflow */
+			if (TIM3_CurrentCount <= TIM3_PreviousCount)
+				TIM3_DiffCount = TIM3_CurrentCount - TIM3_PreviousCount;
+			else
+				TIM3_DiffCount = -((TIM3_ARR_VALUE+1) - TIM3_CurrentCount) - TIM3_PreviousCount;
+		} else {
+			/* check for counter overflow */
+			if (TIM3_CurrentCount >= TIM3_PreviousCount)
+				TIM3_DiffCount = TIM3_CurrentCount - TIM3_PreviousCount;
+			else
+				TIM3_DiffCount = ((TIM3_ARR_VALUE+1) - TIM3_PreviousCount) + TIM3_CurrentCount;
+		}
+
+		TIM3_PreviousCount = TIM3_CurrentCount;
+
      	/*	Prepare data packet */
-		data.w1 = 10;
-		data.w2 += 1.085;
-		data.u1 = -3.14;
-		data.u2 = 0.555683;
+		data.diffcount = 30/19.2*(float)TIM3_DiffCount;
 
 		ertc_dlog_send(&logger, &data, sizeof(data));
 	}
@@ -215,6 +233,25 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  ertc_dlog_update(&logger);
 
+	  int32_t duty;
+
+	  int PWM = 1;
+
+	  duty = V2DUTY*PWM;
+
+	  /* calculate duty properly */
+	  if (duty >= 0) { // rotate forward
+	  /* alternate between forward and coast*/
+	  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, (uint32_t)duty);
+	  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, 0);
+	  /* alternate between forward and brake, TIM8_ARR_VALUE is a define
+	  * __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, (uint32_t)TIM8_ARR_VALUE);
+	  * __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, TIM8_ARR_VALUE - duty);
+	  */
+	  } else { // rotate backward
+		  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, 0);
+		  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, (uint32_t)-duty);
+	  }
   }
   /* USER CODE END 3 */
 }
