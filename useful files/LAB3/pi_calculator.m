@@ -6,7 +6,7 @@ mu = 33.922;
 a = 0.217;
 tau = 0.02;
 
-ts_5 = 0.25;    % [s]
+ts_5 = 0.3;    % [s]
 M_p = 0.5;      % 30%
 alpha = 4;
 
@@ -26,7 +26,7 @@ phi = angle(z);
 d_k = 1/(abs(mag));
 d_phi = -pi + phi_m - phi;
 
-[kp, ki] = calculatePi(w_gc, d_k, d_phi)
+[K_p, K_i] = calculatePi(w_gc, d_k, d_phi)
 
 function [kp,ki] = calculatePi(wgc,d_k,d_phi)
     kp= d_k * cos(d_phi);
