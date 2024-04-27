@@ -74,6 +74,17 @@ UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 struct ertc_dlog logger;
+
+uint16_t SX1509_I2C_ADDR2 = 0x3F;
+uint16_t REG_KEY_DATA_1 = 0x27;
+uint16_t REG_KEY_DATA_2 = 0x28;
+uint32_t I2C_TIMEOUT = 200;
+
+const char keypadLayout[4][4] = {
+    {'*', '0', '#', 'D'},
+    {'7', '8', '9', 'C'},
+    {'4', '5', '6', 'B'},
+    {'1', '2', '3', 'A'}};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,110 +114,162 @@ static void MX_TIM6_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-float reference = 30.0;
+/* ---------------------------------------- */
+/*      DYNAMIC SPEED CONTROL SECTION       */
+/* ---------------------------------------- */
+
+float reference = 0.0;
+int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
+int counter = 0;				// counter for the values array
+
+uint8_t extractIndex(uint8_t byte_sequence) {
+	int k = 0;
+	while ((byte_sequence & 1) != 1) {
+		byte_sequence >>= 1;
+		k++;
+	}
+
+	return k;
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+
+	//printf("Interrupt on pin (%d).\n", GPIO_Pin);
+	/* your code here */
+
+	if (GPIO_Pin == GPIO_EXTI4_KPAD_IRQ_Pin) {
+
+		uint8_t data_column;
+		uint8_t data_row;
+		HAL_StatusTypeDef status;
+
+		// Read key data
+		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &data_column, 1, I2C_TIMEOUT);
+		if (status != HAL_OK) {
+			//printf("I2C communication error (%X).\n", status);
+			return;
+		}
+
+		status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &data_row, 1, I2C_TIMEOUT);
+		if (status != HAL_OK) {
+			//printf("I2C communication error (%X).\n", status);
+			return;
+		}
+
+		// Convert key data into indexes
+		uint8_t col_index = extractIndex(~data_column);
+		uint8_t row_index = extractIndex(~data_row);
+
+		char key = keypadLayout[row_index][col_index];
+
+		//printf("The following button has been pressed: (%c).\n", key);
+
+		if (key >= '0' && key <= '9' && counter < 5) {			// if the key is not # and the maximum number of digits is not reached
+			values[counter] = key - '0';
+			counter++;
+		} else if (key == '#'){									// if the key is #
+			int final_speed = 0;
+			for (int i = 0; i < counter; i++) {
+				int power = pow(10, counter-i-1);
+				final_speed += values[i]*power;					// compute the final value using powers of 10
+			}
+			//printf("Final speed: %d rpm.\n", final_speed);
+			counter = 0;
+			for (int i = 0; i < 5; i++)
+				values[i] = 0;
+
+			reference = final_speed;
+		} else {												// if the maximum number of digits is reached
+			//printf("Maximum number of digits reached. Please insert another sequence of numbers.\n");
+			counter = 0;
+			for (int i = 0; i < 5; i++)
+				values[i] = 0;
+		}
+	}
+
+}
+
+/* ---------------------------------------- */
+/*          MOTORS CONTROL SECTION          */
+/* ---------------------------------------- */
+
 const float Kp = 0.5122;
 const float Ki = 9.7922;
-uint32_t duty_r = 0;
-uint32_t duty_l = 0;
+const float Kw = 0;
 
 struct datalog {
-	float speed_r, error_r;
-	float speed_l, error_l;
+	float reference_r, speed_r, error_r;
+	float reference_l, speed_l, error_l;
 } data;
 
-float compute_speed_r() {
-	uint32_t TIM3_CurrentCount;
-	int32_t TIM3_DiffCount;
-	static uint32_t TIM3_PreviousCount = 0;
+struct u_motors {
+	float u_r;
+	float u_l;
+};
 
-	TIM3_CurrentCount = __HAL_TIM_GET_COUNTER(&htim3);
+float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32_t TIM_ARR_VALUE) {
 
-	/* evaluate increment of TIM counter from previous count */
-	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
-		/* check for counter underflow */
-		if (TIM3_CurrentCount <= TIM3_PreviousCount)
-			TIM3_DiffCount = TIM3_CurrentCount - TIM3_PreviousCount;
+	uint32_t TIM_CurrentCount = __HAL_TIM_GET_COUNTER(htim);
+	int32_t TIM_DiffCount;
+
+	// evaluate increment of TIM counter from previous count
+	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(htim)) {
+		// check for counter underflow
+		if (TIM_CurrentCount <= *TIM_PreviousCount)
+			TIM_DiffCount = TIM_CurrentCount - *TIM_PreviousCount;
 		else
-			TIM3_DiffCount = -((TIM3_ARR_VALUE+1) - TIM3_CurrentCount) - TIM3_PreviousCount;
+			TIM_DiffCount = -((TIM_ARR_VALUE+1) - TIM_CurrentCount) - *TIM_PreviousCount;
 	} else {
-		/* check for counter overflow */
-		if (TIM3_CurrentCount >= TIM3_PreviousCount)
-			TIM3_DiffCount = TIM3_CurrentCount - TIM3_PreviousCount;
+		// check for counter overflow
+		if (TIM_CurrentCount >= *TIM_PreviousCount)
+			TIM_DiffCount = TIM_CurrentCount - *TIM_PreviousCount;
 		else
-			TIM3_DiffCount = ((TIM3_ARR_VALUE+1) - TIM3_PreviousCount) + TIM3_CurrentCount;
+			TIM_DiffCount = ((TIM_ARR_VALUE+1) - *TIM_PreviousCount) + TIM_CurrentCount;
 	}
 
-	TIM3_PreviousCount = TIM3_CurrentCount;
+	*TIM_PreviousCount = TIM_CurrentCount;
 
-	/*	Return speed in rpm */
-	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM3_DiffCount;
+	//	Return speed in rpm
+	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM_DiffCount;
 	float speed_rpm = speed_rads/RPM2RADS;
 
 	return speed_rpm;
 }
 
-float compute_speed_l() {
-	uint32_t TIM4_CurrentCount;
-	int32_t TIM4_DiffCount;
-	static uint32_t TIM4_PreviousCount = 0;
+float saturate(float u) {
+	if (u > VBATT-1) return VBATT-1;
+	if (u < 1-VBATT) return 1-VBATT;
+	return u;
+}
 
-	TIM4_CurrentCount = __HAL_TIM_GET_COUNTER(&htim4);
+float PI(float error, float* u_int, bool antiwindup) {
+	float u_p = Kp*error;
+	*u_int += Ki*error*TS;
 
-	/* evaluate increment of TIM counter from previous count */
-	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim4)) {
-		/* check for counter underflow */
-		if (TIM4_CurrentCount <= TIM4_PreviousCount)
-			TIM4_DiffCount = TIM4_CurrentCount - TIM4_PreviousCount;
-		else
-			TIM4_DiffCount = -((TIM4_ARR_VALUE+1) - TIM4_CurrentCount) - TIM4_PreviousCount;
-	} else {
-		/* check for counter overflow */
-		if (TIM4_CurrentCount >= TIM4_PreviousCount)
-			TIM4_DiffCount = TIM4_CurrentCount - TIM4_PreviousCount;
-		else
-			TIM4_DiffCount = ((TIM4_ARR_VALUE+1) - TIM4_PreviousCount) + TIM4_CurrentCount;
+	float u = u_p + *u_int;
+
+	if (antiwindup) {
+		float saturation = u - saturate(u);
+		*u_int -= saturation*Kw*TS;
+		u = u_p + *u_int;
 	}
 
-	TIM4_PreviousCount = TIM4_CurrentCount;
-
-	/*	Return speed in rpm */
-	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM4_DiffCount;
-	float speed_rpm = speed_rads/RPM2RADS;
-
-	return speed_rpm;
+	return u;
 }
 
-float PI_r(float error) {
-	float u_p = Kp*error;
-	static float u_int_r = 0;
-	u_int_r += Ki*error*TS;
-
-	return (u_p + u_int_r);
-}
-
-float PI_l(float error) {
-	float u_p = Kp*error;
-	static float u_int_l = 0;
-	u_int_l += Ki*error*TS;
-
-	return (u_p + u_int_l);
-}
-uint32_t g_duty;
-void set_motor_speed(uint32_t duty, uint32_t channel_1, uint32_t channel_2) {
-	g_duty = duty;
-
-	if (duty > TIM8_ARR_VALUE)
-		duty = TIM8_ARR_VALUE;
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty) {
+	/*if (duty > TIM8_ARR_VALUE)
+		duty = TIM8_ARR_VALUE;*/
 	if (duty >= 0) { // rotate forward
 		// alternate between forward and coast
-		//__HAL_TIM_SET_COMPARE(&htim8, channel_1, (uint32_t)duty);
-		//__HAL_TIM_SET_COMPARE(&htim8, channel_2, 0);
+		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+		//__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
 		// alternate between forward and brake, TIM8_ARR_VALUE is a define
-		__HAL_TIM_SET_COMPARE(&htim8, channel_1, (uint32_t)TIM8_ARR_VALUE);
-	    __HAL_TIM_SET_COMPARE(&htim8, channel_2, TIM8_ARR_VALUE - duty);
+		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+	    __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
 	} else { // rotate backward
-		__HAL_TIM_SET_COMPARE(&htim8, channel_1, 0);
-		__HAL_TIM_SET_COMPARE(&htim8, channel_2, (uint32_t) - duty);
+		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
 	}
 }
 
@@ -214,32 +277,38 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	/* Speed ctrl routine */
 	if(htim->Instance == TIM6) {
-		// SPEED MOTOR
-		float speed_r = compute_speed_r();
-		float speed_l = compute_speed_l();
+		// ENCODER READING
+		static uint32_t TIM3_PreviousCount = 0;
+		float speed_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
+
+		static uint32_t TIM4_PreviousCount = 0;
+		float speed_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
 		// SIGNAL ERROR
 		float error_r = reference - speed_r;
 		float error_l = reference - speed_l;
 
 		// CONTROLLER INPUT
-		float u_r = PI_r(error_r);
-		float u_l = PI_l(error_l);
+		static float u_int_r = 0;
+		float u_r = PI(error_r, &u_int_r, false);
 
-		duty_r = (uint32_t)V2DUTY*u_r;
-		duty_l = (uint32_t)V2DUTY*u_l;
+		static float u_int_l = 0;
+		float u_l = PI(error_l, &u_int_l, false);
+
+		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r);
+		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l);
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(duty_r, TIM_CHANNEL_1, TIM_CHANNEL_2);
-		set_motor_speed(duty_l, TIM_CHANNEL_3, TIM_CHANNEL_4);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
 
 		// LOGGING
+		data.reference_r = reference;
 		data.speed_r = speed_r;
 		data.error_r = error_r;
+		data.reference_l = reference;
 		data.speed_l = speed_l;
 		data.error_l = error_l;
-		//data.reference_r = reference;
-		//data.reference_l = reference;
 
 		ertc_dlog_send(&logger, &data, sizeof(data));
 	}
@@ -335,9 +404,6 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  ertc_dlog_update(&logger);
-
-	  /*HAL_Delay(10*1000);
-	  reference = 50.0;*/
 
 
   }
