@@ -12,6 +12,6 @@ if isempty(port)
     port = 'COM1';
 end
 
-data = serial_datalog(port, {'1*single', '1*single', '1*single', '1*single'}, 'baudrate', 115200);
+data = serial_datalog(port, {'2*single', '1*single', '2*single', '1*single'}, 'baudrate', 115200);
 
 % save('LabData');

@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include <math.h>
 #include <stdbool.h>
+#include "SX1509_Registers.h"
 #include "ertc-datalogger.h"
 /* USER CODE END Includes */
 
@@ -35,6 +36,13 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 //#define	HAL_TIMEOUT		1
+#define HAL_TIMEOUT 100
+
+#define I2C_TIMEOUT 200
+
+#define SX1509_I2C_ADDR1 0x3E //	SX1509 Proxy Sensors I2C address
+#define SX1509_I2C_ADDR2 0x3F //	SX1509 Keypad I2C address
+
 #define TS	0.01
 
 #define VBATT	8.0
@@ -75,11 +83,6 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 struct ertc_dlog logger;
 
-uint16_t SX1509_I2C_ADDR2 = 0x3F;
-uint16_t REG_KEY_DATA_1 = 0x27;
-uint16_t REG_KEY_DATA_2 = 0x28;
-uint32_t I2C_TIMEOUT = 200;
-
 const char keypadLayout[4][4] = {
     {'*', '0', '#', 'D'},
     {'7', '8', '9', 'C'},
@@ -108,7 +111,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM9_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
-
+extern void initialise_monitor_handles(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -121,6 +124,8 @@ static void MX_TIM6_Init(void);
 float reference = 0.0;
 int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
 int counter = 0;				// counter for the values array
+static volatile uint8_t entering = false;
+int pin_pressed = 0;
 
 uint8_t extractIndex(uint8_t byte_sequence) {
 	int k = 0;
@@ -136,9 +141,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	//printf("Interrupt on pin (%d).\n", GPIO_Pin);
 	/* your code here */
+	pin_pressed = GPIO_Pin;
 
 	if (GPIO_Pin == GPIO_EXTI4_KPAD_IRQ_Pin) {
 
+		entering = true;
 		uint8_t data_column;
 		uint8_t data_row;
 		HAL_StatusTypeDef status;
@@ -195,7 +202,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 const float Kp = 0.5122;
 const float Ki = 9.7922;
-const float Kw = 0;
+const float Kw = 1;
 
 struct datalog {
 	float reference_r, speed_r, error_r;
@@ -284,10 +291,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 		// CONTROLLER INPUT
 		static float u_int_r = 0;
-		float u_r = PI(error_r, &u_int_r, false);
+		float u_r = PI(error_r, &u_int_r, true);
 
 		static float u_int_l = 0;
-		float u_l = PI(error_l, &u_int_l, false);
+		float u_l = PI(error_l, &u_int_l, true);
 
 		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r);
 		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l);
@@ -307,6 +314,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		ertc_dlog_send(&logger, &data, sizeof(data));
 	}
 }
+
+HAL_StatusTypeDef status;
 /* USER CODE END 0 */
 
 /**
@@ -316,6 +325,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+  uint8_t data;
 
   /* USER CODE END 1 */
 
@@ -332,7 +342,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  initialise_monitor_handles();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -355,6 +365,132 @@ int main(void)
   MX_TIM9_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
+
+  /* Disable EXTI4_IRQ during SX1509 initialization */
+  HAL_NVIC_DisableIRQ(EXTI4_IRQn);
+
+  /* Software reset */
+  data = 0x12;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  data = 0x34;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  HAL_Delay(100);
+
+  /* Set KeyPad scanning engine */
+
+  /* Set RegClock to 0x40 (enable internal oscillator; 2MHz freq) */
+  data = 0x40;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_CLOCK, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set Bank A RegDir to 0xF0 (IO[0:3] as out) */
+  data = 0xF0;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set Bank B RegDir to 0x0F (IO[8:11] as in) */
+  data = 0x0F;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set Bank A RegOpenDrain to 0x0F (IO[0:3] as open-drain outputs) */
+  data = 0x0F;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_OPEN_DRAIN_A, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set Bank B RegPullup to 0x0F (pull-ups enabled on inputs IO[8:11]) */
+  data = 0x0F;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_PULL_UP_B, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set Bank B RegDebounceEnable to 0x0F (enable debouncing on IO[8:11]) */
+  data = 0x0F;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_ENABLE_B, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegDebounceConfig to 0x05 (16ms debounce time) */
+  data = 0x05;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_CONFIG, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegKeyConfig1 to 0x7D (8s auto-sleep; 32ms scan time per row) */
+  data = 0x7D;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_1, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegKeyConfig2 to 0x1B (4 rows; 4 columns) */
+  data = 0x1B;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_2, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Enable EXTI4_IRQ after SX1509 initialization */
+  HAL_Delay(100);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+
+  /* Disable EXTI2_IRQ during SX1509 initialization */
+  HAL_NVIC_DisableIRQ(EXTI2_IRQn);
+
+  /* Software reset */
+  data = 0x12;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  data = 0x34;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  HAL_Delay(100);
+
+  /* Set RegDirA to 0xFF (all IO of Bank A configured as inputs) */
+  data = 0xFF; // 0 = out; 1 = in
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegDirB to 0xFF (all IO of Bank B configured as inputs) */
+  data = 0xFF; // 0 = out; 1 = in
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegInterruptMaskA to 0x00 (all IO of Bank A will trigger an interrupt) */
+  data = 0x00;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_INTERRUPT_MASK_A, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegSenseHighA to 0xAA (IO[7:4] of Bank A will trigger an interrupt on falling edge) */
+  data = 0xAA;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_HIGH_A, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Set RegSenseLowA to 0xAA (IO[3:0] of Bank A will trigger an interrupt on falling edge) */
+  data = 0xAA;
+  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_LOW_A, 1, &data, 1, I2C_TIMEOUT);
+  if (status != HAL_OK)
+    //printf("I2C communication error (%X).\n", status);
+
+  /* Enable EXTI2_IRQ after SX1509 initialization */
+  HAL_Delay(100);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
   logger.uart_handle = huart3; // for serial
   //logger.uart_handle = huart2; // for wifi
@@ -392,6 +528,9 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  //printf("Ready.");
+
   while (1)
   {
     /* USER CODE END WHILE */
@@ -1356,15 +1495,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin GPIO_EXTI3_IMU_IRQ_Pin GPIO_EXTI4_KPAD_IRQ_Pin GPIO_EXTI8_USER_BUT1_IRQ_Pin
-                           GPIO_EXTI9_USER_BUT2_IRQ_Pin GPIO_EXTI10_BUMP1_IRQ_Pin GPIO_EXTI11_BUMP2_IRQ_Pin GPIO_EXTI12_BUMP3_IRQ_Pin
-                           GPIO_EXTI13_BUMP4_IRQ_Pin */
-  GPIO_InitStruct.Pin = GPIO_EXTI2_PROXY_TOF_SENS_IRQ_Pin|GPIO_EXTI3_IMU_IRQ_Pin|GPIO_EXTI4_KPAD_IRQ_Pin|GPIO_EXTI8_USER_BUT1_IRQ_Pin
-                          |GPIO_EXTI9_USER_BUT2_IRQ_Pin|GPIO_EXTI10_BUMP1_IRQ_Pin|GPIO_EXTI11_BUMP2_IRQ_Pin|GPIO_EXTI12_BUMP3_IRQ_Pin
-                          |GPIO_EXTI13_BUMP4_IRQ_Pin;
+  /*Configure GPIO pins : GPIO_EXTI3_IMU_IRQ_Pin GPIO_EXTI4_KPAD_IRQ_Pin GPIO_EXTI8_USER_BUT1_IRQ_Pin GPIO_EXTI9_USER_BUT2_IRQ_Pin
+                           GPIO_EXTI10_BUMP1_IRQ_Pin GPIO_EXTI11_BUMP2_IRQ_Pin GPIO_EXTI12_BUMP3_IRQ_Pin GPIO_EXTI13_BUMP4_IRQ_Pin */
+  GPIO_InitStruct.Pin = GPIO_EXTI3_IMU_IRQ_Pin|GPIO_EXTI4_KPAD_IRQ_Pin|GPIO_EXTI8_USER_BUT1_IRQ_Pin|GPIO_EXTI9_USER_BUT2_IRQ_Pin
+                          |GPIO_EXTI10_BUMP1_IRQ_Pin|GPIO_EXTI11_BUMP2_IRQ_Pin|GPIO_EXTI12_BUMP3_IRQ_Pin|GPIO_EXTI13_BUMP4_IRQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : GPIO_EXTI4_KPAD_IRQ_Pin */
+  GPIO_InitStruct.Pin = GPIO_EXTI4_KPAD_IRQ_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIO_EXTI4_KPAD_IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RMII_MDC_Pin RMII_RXD0_Pin RMII_RXD1_Pin */
   GPIO_InitStruct.Pin = RMII_MDC_Pin|RMII_RXD0_Pin|RMII_RXD1_Pin;
@@ -1431,6 +1574,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF11_ETH;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
 }
 
