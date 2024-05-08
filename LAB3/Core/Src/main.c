@@ -121,7 +121,7 @@ extern void initialise_monitor_handles(void);
 /*      DYNAMIC SPEED CONTROL SECTION       */
 /* ---------------------------------------- */
 
-float reference = 0.0;
+float reference = 10;
 int values[5];					// maximum 5 digits, i.e. all values from 0 to 99999
 int counter = 0;				// counter for the values array
 static volatile uint8_t entering = false;
