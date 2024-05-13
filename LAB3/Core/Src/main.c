@@ -202,11 +202,6 @@ struct datalog {
 	float reference_l, speed_l, error_l;
 } data;
 
-struct u_motors {
-	float u_r;
-	float u_l;
-};
-
 float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32_t TIM_ARR_VALUE) {
 
 	uint32_t TIM_CurrentCount = __HAL_TIM_GET_COUNTER(htim);
@@ -273,8 +268,7 @@ void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t chann
 	}
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	/* Speed ctrl routine */
 	if(htim->Instance == TIM6) {
 		// ENCODER READING
