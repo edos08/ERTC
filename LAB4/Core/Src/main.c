@@ -114,9 +114,10 @@ static void MX_TIM6_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-/* ---------------------------------------- */
-/*          MOTORS CONTROL SECTION          */
-/* ---------------------------------------- */
+#define D 0.165
+#define H 0.085
+#define R 0.034
+#define P 0.008
 
 float reference_r = 0.0;
 float reference_l = 0.0;
@@ -126,8 +127,8 @@ const float Ki = 9.7922;
 const float Kw = 0;
 
 struct datalog {
-	float reference_r, speed_r, error_r;
-	float reference_l, speed_l, error_l;
+	float reference_r, w_l, error_r;
+	float reference_l, w_r, error_l;
 } data;
 
 float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32_t TIM_ARR_VALUE) {
@@ -180,14 +181,17 @@ float PI(float error, float* u_int, bool antiwindup) {
 	return u;
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty) {
-	if (duty >= 0) { // rotate forward
-		// alternate between forward and coast
-		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-		//__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		// alternate between forward and brake, TIM8_ARR_VALUE is a define
-		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-	    __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty, bool fwd_coast) {
+	if (duty >= 0) {
+		if (fwd_coast) {
+			// alternate between forward and coast
+			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+		} else {
+			// alternate between forward and brake, TIM8_ARR_VALUE is a define
+			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+		}
 	} else { // rotate backward
 		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
 		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
@@ -196,9 +200,9 @@ void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t chann
 
 float compute_SL_error() {
 	uint8_t line_sensor_data;
-	HAL_StatusTypeDef status;
+	//HAL_StatusTypeDef status;
 
-	status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
+	HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
 
 	uint8_t lines_status[8];
 	float den_sum = 0.0;
@@ -214,45 +218,65 @@ float compute_SL_error() {
 
 	for (uint8_t i=0; i<8; i++)
 		if (lines_status[i] == 1)
-			num_sum += (3.5 - i)*0.008;
+			num_sum += (3.5 - i)*P;
 
 	return num_sum/den_sum;
+}
+
+float simple_yaw_controller(float SL_error) {
+	float K = 10.0;
+	return SL_error*K;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	/* Speed ctrl routine */
 	if(htim->Instance == TIM6) {
+		//LINE SENSOR ERROR READING
+		float SL_error = compute_SL_error();
+
 		// ENCODER READING
 		static uint32_t TIM3_PreviousCount = 0;
-		float speed_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
+		float w_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
 
 		static uint32_t TIM4_PreviousCount = 0;
-		float speed_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
+		float w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
+
+		// KINEMATIC COMPUTATION
+		float V_r = R*RPM2RADS*w_r;
+		float V_l = R*RPM2RADS*w_l;
+
+		//float yaw_rate = (V_r - V_l)/D;
+		float V = (V_r + V_l)/2.0;
+
+		float new_yaw = simple_yaw_controller(SL_error);
+
+		reference_r = V + new_yaw*D/2.0;
+		reference_l = V - new_yaw*D/2.0;
 
 		// SIGNAL ERROR
-		float error_r = reference_r - speed_r;
-		float error_l = reference_l - speed_l;
+		float error_r = reference_r - w_r;
+		float error_l = reference_l - w_l;
 
 		// CONTROLLER INPUT
 		static float u_int_r = 0;
-		float u_r = PI(error_r, &u_int_r, false);
+		float u_r = PI(error_r, &u_int_r, true);
 
 		static float u_int_l = 0;
-		float u_l = PI(error_l, &u_int_l, false);
+		float u_l = PI(error_l, &u_int_l, true);
 
 		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r);
 		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l);
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, true);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, true);
 
 		// LOGGING
 		data.reference_r = reference_r;
-		data.speed_r = speed_r;
+		data.w_r = w_r;
 		data.error_r = error_r;
 		data.reference_l = reference_l;
-		data.speed_l = speed_l;
+		data.w_l = w_l;
 		data.error_l = error_l;
 
 		ertc_dlog_send(&logger, &data, sizeof(data));
