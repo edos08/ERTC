@@ -123,13 +123,14 @@ extern void initialise_monitor_handles(void);
 float reference_r = 0.0;
 float reference_l = 0.0;
 
-const float Kp = 0.5122;
-const float Ki = 9.7922;
+const float Kp = 3;
+const float Ki = 10;
 const float Kw = 0;
 
 struct datalog {
 	float reference_r, w_l, error_r;
 	float reference_l, w_r, error_l;
+	float e_sl;
 } data;
 
 float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32_t TIM_ARR_VALUE) {
@@ -200,31 +201,32 @@ void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t chann
 }
 
 float compute_SL_error() {
-	uint8_t line_sensor_data;
+	uint8_t line_sensor_data = 0;
 
 	HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
 
-	uint8_t lines_status[8];
+	static uint8_t lines_status[8];
+
 	float den_sum = 0.0;
 	float num_sum = 0.0;
 
-	for (uint8_t i=0; i<8; i++) {
-		if (line_sensor_data & 1) {
-			lines_status[7-i] = 1;
-			den_sum += 1;
+	if (line_sensor_data != 0) {
+		for (uint8_t i=0; i<8; i++) {
+			lines_status[i] = line_sensor_data & 1;
+			line_sensor_data >>= 1;
 		}
-		line_sensor_data >>= 1;
 	}
 
-	for (uint8_t i=0; i<8; i++)
-		if (lines_status[i] == 1)
-			num_sum += (3.5 - i)*P;
+	for (uint8_t i=0; i<8; i++) {
+		den_sum += lines_status[i];
+		num_sum += lines_status[i]*(3.5 - i)*P;
+	}
 
 	return num_sum/den_sum;
 }
 
 float simple_yaw_controller(float yaw_error) {
-	float K = 18.0;
+	float K = 5.0;
 	return yaw_error*K;
 }
 
@@ -245,8 +247,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		float yaw_dot = simple_yaw_controller(SL_error/H);
 
 		// KINEMATIC CONVERSION
-		reference_r = saturate((V + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((V - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_r = saturate((V + yaw_dot*D/2.0)/(R*RPM2RADS), -100, 100);
+		reference_l = saturate((V - yaw_dot*D/2.0)/(R*RPM2RADS), -100, 100);
 
 		// SIGNAL ERROR
 		float error_r = reference_r - w_r;
@@ -263,8 +265,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l, 1-VBATT, VBATT-1);
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, true);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, true);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
 
 		// LOGGING
 		data.reference_r = reference_r;
@@ -288,7 +290,6 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
   uint8_t data;
-  HAL_StatusTypeDef status;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -336,10 +337,10 @@ int main(void)
 
   /* Software reset */
   data = 0x12;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
 
   data = 0x34;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
 
   HAL_Delay(100);
 
@@ -347,39 +348,39 @@ int main(void)
 
   /* Set RegClock to 0x40 (enable internal oscillator; 2MHz freq) */
   data = 0x40;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_CLOCK, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_CLOCK, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set Bank A RegDir to 0xF0 (IO[0:3] as out) */
   data = 0xF0;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set Bank B RegDir to 0x0F (IO[8:11] as in) */
   data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set Bank A RegOpenDrain to 0x0F (IO[0:3] as open-drain outputs) */
   data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_OPEN_DRAIN_A, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_OPEN_DRAIN_A, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set Bank B RegPullup to 0x0F (pull-ups enabled on inputs IO[8:11]) */
   data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_PULL_UP_B, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_PULL_UP_B, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set Bank B RegDebounceEnable to 0x0F (enable debouncing on IO[8:11]) */
   data = 0x0F;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_ENABLE_B, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_ENABLE_B, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegDebounceConfig to 0x05 (16ms debounce time) */
   data = 0x05;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_CONFIG, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_CONFIG, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegKeyConfig1 to 0x7D (8s auto-sleep; 32ms scan time per row) */
   data = 0x7D;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_1, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_1, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegKeyConfig2 to 0x1B (4 rows; 4 columns) */
   data = 0x1B;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_2, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_2, 1, &data, 1, I2C_TIMEOUT);
 
   /* Enable EXTI4_IRQ after SX1509 initialization */
   HAL_Delay(100);
@@ -390,39 +391,39 @@ int main(void)
 
   /* Software reset */
   data = 0x12;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
 
   data = 0x34;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
 
   HAL_Delay(100);
 
   /* Set RegDirA to 0xFF (all IO of Bank A configured as inputs) */
   data = 0xFF; // 0 = out; 1 = in
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegDirB to 0xFF (all IO of Bank B configured as inputs) */
   data = 0xFF; // 0 = out; 1 = in
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegInterruptMaskA to 0x00 (all IO of Bank A will trigger an interrupt) */
   data = 0x00;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_INTERRUPT_MASK_A, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_INTERRUPT_MASK_A, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegSenseHighA to 0xAA (IO[7:4] of Bank A will trigger an interrupt on falling edge) */
   data = 0xAA;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_HIGH_A, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_HIGH_A, 1, &data, 1, I2C_TIMEOUT);
 
   /* Set RegSenseLowA to 0xAA (IO[3:0] of Bank A will trigger an interrupt on falling edge) */
   data = 0xAA;
-  status = HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_LOW_A, 1, &data, 1, I2C_TIMEOUT);
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_LOW_A, 1, &data, 1, I2C_TIMEOUT);
 
   /* Enable EXTI2_IRQ after SX1509 initialization */
   HAL_Delay(100);
   //HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
-  //logger.uart_handle = huart3; // for serial
-  logger.uart_handle = huart2; // for wifi
+  logger.uart_handle = huart3; // for serial
+  //logger.uart_handle = huart2; // for wifi
 
   /* Reset LCD */
   HAL_GPIO_WritePin(GPIO_OUT_SPI_CS_LCD_GPIO_Port, GPIO_OUT_SPI_CS_LCD_Pin, GPIO_PIN_SET);

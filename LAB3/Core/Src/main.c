@@ -231,9 +231,9 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 	return speed_rpm;
 }
 
-float saturate(float u) {
-	if (u > VBATT-1) return VBATT-1;
-	if (u < 1-VBATT) return 1-VBATT;
+float saturate(float u, float min, float max) {
+	if (u > max) return max;
+	if (u < min) return min;
 	return u;
 }
 
@@ -244,7 +244,7 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u);
+		float saturation = u - saturate(u, 1-VBATT, VBATT-1);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
@@ -252,16 +252,17 @@ float PI(float error, float* u_int, bool antiwindup) {
 	return u;
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty) {
-	/*if (duty > TIM8_ARR_VALUE)
-		duty = TIM8_ARR_VALUE;*/
-	if (duty >= 0) { // rotate forward
-		// alternate between forward and coast
-		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-		//__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		// alternate between forward and brake, TIM8_ARR_VALUE is a define
-		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-	    __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty, bool fwd_coast) {
+	if (duty >= 0) {
+		if (fwd_coast) {
+			// alternate between forward and coast
+			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+		} else {
+			// alternate between forward and brake, TIM8_ARR_VALUE is a define
+			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+		}
 	} else { // rotate backward
 		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
 		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
@@ -284,17 +285,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 		// CONTROLLER INPUT
 		static float u_int_r = 0;
-		float u_r = PI(error_r, &u_int_r, false);
+		float u_r = PI(error_r, &u_int_r, true);
 
 		static float u_int_l = 0;
-		float u_l = PI(error_l, &u_int_l, false);
+		float u_l = PI(error_l, &u_int_l, true);
 
-		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r);
-		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l);
+		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r, 1-VBATT, VBATT-1);
+		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l, 1-VBATT, VBATT-1);
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, true);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, true);
 
 		// LOGGING
 		data.reference_r = reference;
@@ -388,6 +389,7 @@ int main(void)
   /* Start speed ctrl ISR */
   HAL_TIM_Base_Start_IT(&htim6);
   HAL_Delay(5000);
+  reference = 10.0;
 
   /* USER CODE END 2 */
 
