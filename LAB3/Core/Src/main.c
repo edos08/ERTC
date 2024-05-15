@@ -387,6 +387,7 @@ int main(void)
 
   /* Start speed ctrl ISR */
   HAL_TIM_Base_Start_IT(&htim6);
+  HAL_Delay(5000);
 
   /* USER CODE END 2 */
 
