@@ -118,7 +118,7 @@ extern void initialise_monitor_handles(void);
 #define H 0.085
 #define R 0.034
 #define P 0.008
-#define V 10.0
+#define V 0.1
 
 float reference_r = 0.0;
 float reference_l = 0.0;
@@ -223,9 +223,8 @@ float compute_SL_error() {
 	return num_sum/den_sum;
 }
 
-float simple_yaw_controller(float SL_error) {
-	float K = 10.0;
-	float yaw_error = SL_error/H;
+float simple_yaw_controller(float yaw_error) {
+	float K = 18.0;
 	return yaw_error*K;
 }
 
@@ -242,9 +241,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static uint32_t TIM4_PreviousCount = 0;
 		float w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
-		// KINEMATIC COMPUTATION
-		float yaw_dot = simple_yaw_controller(SL_error);
+		// YAW CONTROLLER
+		float yaw_dot = simple_yaw_controller(SL_error/H);
 
+		// KINEMATIC CONVERSION
 		reference_r = saturate((V + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
 		reference_l = saturate((V - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
 
