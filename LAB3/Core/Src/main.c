@@ -193,9 +193,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 /*          MOTORS CONTROL SECTION          */
 /* ---------------------------------------- */
 
-const float Kp = 0.5122;
-const float Ki = 9.7922;
-const float Kw = 2.0;
+const float Kp = 4.77;
+const float Ki = 20.95;
+const float Kw = 3.0;
 
 struct datalog {
 	float reference_r, speed_r, error_r;

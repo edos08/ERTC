@@ -121,9 +121,12 @@ extern void initialise_monitor_handles(void);
 #define P 0.008
 #define V 0.2
 
-const float Kp = 5.0;
-const float Ki = 10.0;
+const float Kp = 1.0;
+const float Ki = 15.0;
 const float Kw = 2.0;
+
+float reference_r = 0.0;
+float reference_l = 0.0;
 
 struct datalog {
 	float reference_r, w_l, error_r;
@@ -224,20 +227,33 @@ float compute_SL_error() {
 }
 
 float linear_yaw_controller(float yaw_error) {
-	float K = 4.0;
+	float K = 4.5;
 	return yaw_error*K;
 }
 
-float speed_controller(float SL_error, float max_speed) {
-	if (fabs(SL_error) < 0.01) {
-		return max_speed;
-	} else if(fabs(SL_error) < 0.02) {
-		return max_speed*(-7.5*SL_error + 1.75);
-	} else if (fabs(SL_error) > 0.02) {
-		return 0.25*max_speed;
-	}
+void speed_controller(float SL_error, float max_speed) {
+	// YAW LINEAR CONTROLLER
+	float yaw_dot = linear_yaw_controller(SL_error/H);
 
-	return 0.0;
+	if (fabs(SL_error) < 0.01) {
+		// KINEMATIC CONVERSION
+		reference_r = saturate((max_speed + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_l = saturate((max_speed - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+	} else if(fabs(SL_error) < 0.02) {
+		// KINEMATIC CONVERSION
+		reference_r = saturate((max_speed*(-2.5*SL_error + 0.75) + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_l = saturate((max_speed*(-2.5*SL_error + 0.75) - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+	} else if (fabs(SL_error) > 0.02) {
+		reference_r = saturate((max_speed*0.25 + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_l = saturate((max_speed*0.25 - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		/*if (SL_error > 0) {
+			reference_r = saturate(0, 0, 100);
+			reference_l = saturate((max_speed*0.25 - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		} else {
+			reference_r = saturate((max_speed*0.25 + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+			reference_l = saturate(0, 0, 100);
+		}*/
+	}
 
 }
 
@@ -254,15 +270,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static uint32_t TIM4_PreviousCount = 0;
 		float w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
-		// YAW LINEAR CONTROLLER
-		float yaw_dot = linear_yaw_controller(SL_error/H);
-
 		// SPEED CONTROLLER
-		//float cV = speed_controller(SL_error, V);
-
-		// KINEMATIC CONVERSION
-		float reference_r = saturate((V + yaw_dot*D/2.0)/(R*RPM2RADS), -100, 100);
-		float reference_l = saturate((V - yaw_dot*D/2.0)/(R*RPM2RADS), -100, 100);
+		speed_controller(SL_error, V);
 
 		// SIGNAL ERROR
 		float error_r = reference_r - w_r;
@@ -436,8 +445,8 @@ int main(void)
   HAL_Delay(100);
   //HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
-  logger.uart_handle = huart3; // for serial
-  //logger.uart_handle = huart2; // for wifi
+  //logger.uart_handle = huart3; // for serial
+  logger.uart_handle = huart2; // for wifi
 
   /* Reset LCD */
   HAL_GPIO_WritePin(GPIO_OUT_SPI_CS_LCD_GPIO_Port, GPIO_OUT_SPI_CS_LCD_Pin, GPIO_PIN_SET);
