@@ -225,7 +225,8 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 	*TIM_PreviousCount = TIM_CurrentCount;
 
 	//	Return speed in rpm
-	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM_DiffCount;
+	//float speed_rads = ((2.0*M_PI*120.0)/(3840.0*TS))*(float)TIM_DiffCount;
+	float speed_rads = ((2.0*M_PI)/(3840.0*TS))*(float)TIM_DiffCount;
 	float speed_rpm = speed_rads/RPM2RADS;
 
 	return speed_rpm;
@@ -244,15 +245,15 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u, 1-VBATT, VBATT-1);
+		float saturation = u - saturate(u, 0.1-VBATT, VBATT-1.0);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
 
-	return u;
+	return saturate(u, 0.1-VBATT, VBATT-0.1);
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty, bool fwd_coast) {
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
 	if (duty >= 0) {
 		if (fwd_coast) {
 			// alternate between forward and coast
@@ -264,8 +265,13 @@ void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t chann
 			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
 		}
 	} else { // rotate backward
-		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
-		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+		if (fwd_coast) {
+			__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+		} else {
+			__HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
+		}
 	}
 }
 
@@ -290,8 +296,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r, 1-VBATT, VBATT-1);
-		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l, 1-VBATT, VBATT-1);
+		int32_t duty_r = V2DUTY*u_l;
+		int32_t duty_l = V2DUTY*u_r;
 
 		// SETTING THE MOTOR SPEED
 		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, true);
