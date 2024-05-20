@@ -160,6 +160,7 @@ struct datalog
 {
 	float ax, ay, az;
 	float gx, gy, gz;
+	float tilt, pan;
 	float ctilt, cpan;
 } logger_data;
 // ------------------------
@@ -265,38 +266,46 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_Delay(20);
-	  bno055_convert_double_accel_xyz_msq(&d_accel_xyz);
-	  bno055_convert_double_gyro_xyz_rps(&d_gyro_xyz);
+	HAL_Delay(20);
+	bno055_convert_double_accel_xyz_msq(&d_accel_xyz);
+	bno055_convert_double_gyro_xyz_rps(&d_gyro_xyz);
 
-	  // ------ EXERCISE 1 ------
+	// ------ EXERCISE 1 ------
 
-	  tilt =- estimate_y_angle(d_accel_xyz.y);
+	float tilt_angle = estimate_y_angle(d_accel_xyz.y);
+	tilt =- tilt_angle;
 
-	  logger_data.ax = d_accel_xyz.x;
-	  logger_data.ay = d_accel_xyz.y;
-	  logger_data.az = d_accel_xyz.z;
+	// ------- BONUS 1 -------
 
-	  logger_data.gx = 0;
-	  logger_data.gy = 0;
-	  logger_data.gz = d_gyro_xyz.z;
+	float pan_angle;
+	int prop = 2;
+	if (fabs(d_gyro_xyz.z) > 0.1)
+		pan_angle -= prop*(180/M_PI)*d_gyro_xyz.z*0.02;
 
-	  logger_data.ctilt = tilt;
+	pan =- pan_angle;
 
-	  // ------- BONUS 1 -------
+	// ------- BONUS 2 -------
 
-	  int prop = 2;
-	  if (d_gyro_xyz.z > 0.1 || d_gyro_xyz.z < -0.1)
-		  pan -= prop*(180/M_PI)*d_gyro_xyz.z*0.02;
+	tilt_angle = compute_angle(d_accel_xyz.y, d_accel_xyz.z);
+	tilt =- tilt_angle;
 
-	  ertc_dlog_send(&logger, &logger_data, sizeof(logger_data));
-	  ertc_dlog_update(&logger);
+	// ------- DATA LOG -------
 
-	  logger_data.cpan = pan;
+	logger_data.ax = d_accel_xyz.x;
+	logger_data.ay = d_accel_xyz.y;
+	logger_data.az = d_accel_xyz.z;
 
-	  // ------- BONUS 2 -------
+	logger_data.gx = d_gyro_xyz.x;
+	logger_data.gy = d_gyro_xyz.y;
+	logger_data.gz = d_gyro_xyz.z;
 
-	  tilt =- compute_angle(d_accel_xyz.y, d_accel_xyz.z);
+	logger_data.tilt = tilt_angle;
+	logger_data.ctilt = tilt;
+	logger_data.pan = pan_angle;
+	logger_data.cpan = pan;
+
+	ertc_dlog_send(&logger, &logger_data, sizeof(logger_data));
+	ertc_dlog_update(&logger);
 
 	  /* update pan-tilt camera */
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3,

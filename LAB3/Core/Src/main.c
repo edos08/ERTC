@@ -24,7 +24,9 @@
 /* USER CODE BEGIN Includes */
 #include <math.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "ertc-datalogger.h"
+#include "SX1509_Registers.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -75,9 +77,8 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 struct ertc_dlog logger;
 
+uint16_t SX1509_I2C_ADDR1 = 0x3E;
 uint16_t SX1509_I2C_ADDR2 = 0x3F;
-uint16_t REG_KEY_DATA_1 = 0x27;
-uint16_t REG_KEY_DATA_2 = 0x28;
 uint32_t I2C_TIMEOUT = 200;
 
 const char keypadLayout[4][4] = {
@@ -108,7 +109,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM9_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
-
+extern void initialise_monitor_handles(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -193,9 +194,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 /*          MOTORS CONTROL SECTION          */
 /* ---------------------------------------- */
 
-const float Kp = 0.5122;
-const float Ki = 9.7922;
-const float Kw = 0;
+//const float Kp = 0.489;
+//const float Ki = 9.033;
+const float Kp = 0.435;
+const float Ki = 2.947;
+const float Kw = 25.0;
 
 struct datalog {
 	float reference_r, speed_r, error_r;
@@ -224,16 +227,19 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 
 	*TIM_PreviousCount = TIM_CurrentCount;
 
-	//	Return speed in rpm
-	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM_DiffCount;
-	float speed_rpm = speed_rads/RPM2RADS;
+	//	Speed at the wheel in RAD/S
+	float speed_rads = ((2.0*M_PI)/(3840.0*TS))*(float)TIM_DiffCount;
 
-	return speed_rpm;
+	//	Speed at the wheel in RPM
+	float wheel_speed_rpm = speed_rads/(float)RPM2RADS;
+	//float motor_speed_rpm = wheel_speed_rpm*120;
+
+	return wheel_speed_rpm;
 }
 
-float saturate(float u) {
-	if (u > VBATT-1) return VBATT-1;
-	if (u < 1-VBATT) return 1-VBATT;
+float saturate(float u, float min, float max) {
+	if (u > max) return max;
+	if (u < min) return min;
 	return u;
 }
 
@@ -244,27 +250,33 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u);
+		float saturation = u - saturate(u, 0.1-VBATT, VBATT-1.0);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
 
-	return u;
+	return saturate(u, 0.1-VBATT, VBATT-0.1);
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty) {
-	/*if (duty > TIM8_ARR_VALUE)
-		duty = TIM8_ARR_VALUE;*/
-	if (duty >= 0) { // rotate forward
-		// alternate between forward and coast
-		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-		//__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		// alternate between forward and brake, TIM8_ARR_VALUE is a define
-		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-	    __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
+	if (duty >= 0) {
+		if (fwd_coast) {
+			// alternate between forward and coast
+			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+		} else {
+			// alternate between forward and brake, TIM8_ARR_VALUE is a define
+			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+		}
 	} else { // rotate backward
-		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
-		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+		if (fwd_coast) {
+			__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+		} else {
+			__HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
+			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
+		}
 	}
 }
 
@@ -273,40 +285,41 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim->Instance == TIM6) {
 		// ENCODER READING
 		static uint32_t TIM3_PreviousCount = 0;
-		float speed_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
+		float wheel_speed_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
 
 		static uint32_t TIM4_PreviousCount = 0;
-		float speed_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
+		float wheel_speed_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
 		// SIGNAL ERROR
-		float error_r = reference - speed_r;
-		float error_l = reference - speed_l;
+		float error_r = reference - wheel_speed_r;
+		float error_l = reference - wheel_speed_l;
 
 		// CONTROLLER INPUT
 		static float u_int_r = 0;
-		float u_r = PI(error_r, &u_int_r, false);
+		float u_r = PI(error_r, &u_int_r, true);
 
 		static float u_int_l = 0;
-		float u_l = PI(error_l, &u_int_l, false);
+		float u_l = PI(error_l, &u_int_l, true);
 
-		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r);
-		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l);
+		int32_t duty_r = V2DUTY*u_l;
+		int32_t duty_l = V2DUTY*u_r;
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, true);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, true);
 
 		// LOGGING
 		data.reference_r = reference;
-		data.speed_r = speed_r;
+		data.speed_r = wheel_speed_r;
 		data.error_r = error_r;
 		data.reference_l = reference;
-		data.speed_l = speed_l;
+		data.speed_l = wheel_speed_l;
 		data.error_l = error_l;
 
 		ertc_dlog_send(&logger, &data, sizeof(data));
 	}
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -316,7 +329,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+  uint8_t data;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -332,7 +345,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  initialise_monitor_handles();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -355,6 +368,99 @@ int main(void)
   MX_TIM9_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
+  /* Disable LCD SPI SS */
+
+  HAL_GPIO_WritePin(GPIO_OUT_SPI_CS_LCD_GPIO_Port, GPIO_OUT_SPI_CS_LCD_Pin, GPIO_PIN_SET);
+
+  /* Disable EXTI4_IRQ during SX1509 initialization */
+  HAL_NVIC_DisableIRQ(EXTI4_IRQn);
+
+  /* Software reset */
+  data = 0x12;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+
+  data = 0x34;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+
+  HAL_Delay(100);
+
+  /* Set KeyPad scanning engine */
+
+  /* Set RegClock to 0x40 (enable internal oscillator; 2MHz freq) */
+  data = 0x40;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_CLOCK, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set Bank A RegDir to 0xF0 (IO[0:3] as out) */
+  data = 0xF0;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set Bank B RegDir to 0x0F (IO[8:11] as in) */
+  data = 0x0F;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set Bank A RegOpenDrain to 0x0F (IO[0:3] as open-drain outputs) */
+  data = 0x0F;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_OPEN_DRAIN_A, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set Bank B RegPullup to 0x0F (pull-ups enabled on inputs IO[8:11]) */
+  data = 0x0F;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_PULL_UP_B, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set Bank B RegDebounceEnable to 0x0F (enable debouncing on IO[8:11]) */
+  data = 0x0F;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_ENABLE_B, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegDebounceConfig to 0x05 (16ms debounce time) */
+  data = 0x05;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_DEBOUNCE_CONFIG, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegKeyConfig1 to 0x7D (8s auto-sleep; 32ms scan time per row) */
+  data = 0x7D;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_1, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegKeyConfig2 to 0x1B (4 rows; 4 columns) */
+  data = 0x1B;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_CONFIG_2, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Enable EXTI4_IRQ after SX1509 initialization */
+  HAL_Delay(100);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+
+  /* Disable EXTI2_IRQ during SX1509 initialization */
+  HAL_NVIC_DisableIRQ(EXTI2_IRQn);
+
+  /* Software reset */
+  data = 0x12;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+
+  data = 0x34;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_RESET, 1, &data, 1, I2C_TIMEOUT);
+
+  HAL_Delay(100);
+
+  /* Set RegDirA to 0xFF (all IO of Bank A configured as inputs) */
+  data = 0xFF; // 0 = out; 1 = in
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_A, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegDirB to 0xFF (all IO of Bank B configured as inputs) */
+  data = 0xFF; // 0 = out; 1 = in
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DIR_B, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegInterruptMaskA to 0x00 (all IO of Bank A will trigger an interrupt) */
+  data = 0x00;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_INTERRUPT_MASK_A, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegSenseHighA to 0xAA (IO[7:4] of Bank A will trigger an interrupt on falling edge) */
+  data = 0xAA;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_HIGH_A, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Set RegSenseLowA to 0xAA (IO[3:0] of Bank A will trigger an interrupt on falling edge) */
+  data = 0xAA;
+  HAL_I2C_Mem_Write(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_SENSE_LOW_A, 1, &data, 1, I2C_TIMEOUT);
+
+  /* Enable EXTI2_IRQ after SX1509 initialization */
+  HAL_Delay(100);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
   logger.uart_handle = huart3; // for serial
   //logger.uart_handle = huart2; // for wifi
@@ -387,6 +493,8 @@ int main(void)
 
   /* Start speed ctrl ISR */
   HAL_TIM_Base_Start_IT(&htim6);
+  HAL_Delay(5000);
+  reference = 20.0;
 
   /* USER CODE END 2 */
 
