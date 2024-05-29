@@ -43,7 +43,7 @@
 #define V2DUTY	((float)(TIM8_ARR_VALUE+1)/VBATT)
 #define DUTY2V	((float)VBATT/(TIM8_ARR_VALUE+1))
 
-#define RPM2RADS	2*M_PI/60
+#define RPM2RADS	2.0*M_PI/60.0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -194,11 +194,25 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 /*          MOTORS CONTROL SECTION          */
 /* ---------------------------------------- */
 
+const float Kp = 0.489;
+const float Ki = 9.033;
+
+//const float Kp = 0.2;
+//const float Ki = 3.14;
+
 //const float Kp = 0.489;
-//const float Ki = 9.033;
-const float Kp = 0.435;
-const float Ki = 2.947;
-const float Kw = 25.0;
+//const float Ki = 3.14;
+
+//const float Kp = 0.522;
+//const float Ki = 5.120;
+
+//const float Kp = 0.294; 	// LAST SIMULATION
+//const float Ki = 3.388;
+
+//const float Kp = 0.412; 	// LAST SIMULATION
+//const float Ki = 4.472;
+
+const float Kw = 2.62; 		// 3,25,50,100
 
 struct datalog {
 	float reference_r, speed_r, error_r;
@@ -231,7 +245,7 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 	float speed_rads = ((2.0*M_PI)/(3840.0*TS))*(float)TIM_DiffCount;
 
 	//	Speed at the wheel in RPM
-	float wheel_speed_rpm = speed_rads/(float)RPM2RADS;
+	float wheel_speed_rpm = speed_rads/RPM2RADS;
 	//float motor_speed_rpm = wheel_speed_rpm*120;
 
 	return wheel_speed_rpm;
@@ -294,13 +308,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		float error_r = reference - wheel_speed_r;
 		float error_l = reference - wheel_speed_l;
 
-		// CONTROLLER INPUT
+		// CONTROLLER OUTPUT
 		static float u_int_r = 0;
 		float u_r = PI(error_r, &u_int_r, true);
 
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
+		// OUTPUT CONVERSION
 		int32_t duty_r = V2DUTY*u_l;
 		int32_t duty_l = V2DUTY*u_r;
 

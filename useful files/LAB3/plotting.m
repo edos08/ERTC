@@ -2,78 +2,97 @@ clc;
 close all;
 clear all;
 
-%% LAB 2
+%% LAB 3
 % ██╗      █████╗ ██████╗     ██████╗ 
 % ██║     ██╔══██╗██╔══██╗    ╚════██╗
 % ██║     ███████║██████╔╝     █████╔╝
-% ██║     ██╔══██║██╔══██╗    ██╔═══╝ 
-% ███████╗██║  ██║██████╔╝    ███████╗
-% ╚══════╝╚═╝  ╚═╝╚═════╝     ╚══════╝
-                                
+% ██║     ██╔══██║██╔══██╗     ╚═══██╗
+% ███████╗██║  ██║██████╔╝    ██████╔╝
+% ╚══════╝╚═╝  ╚═╝╚═════╝     ╚═════╝ 
 
+%%*******************SIMULATION****************************
 
-%%*******************EXERCISE 1****************************
-
-% load("bonus_1.mat");
+% load("PI_simulation.mat");
 % 
-% X = data.time - 4.40;
+% X = out.scope_datanew.time;
 % 
 % % count = 1;
 % % while X(count) < 0 
 % %     count = count + 1;
 % % end
 % 
-% X = X(400:end);
-% Y_1 = data.out{1,1}(2,400:end);
-% Y_2 = -data.out{3,1}(1,400:end);
-% Y_3 = -Y_2;
-% Y_4 = -data.out{3,1}(2,400:end);
-% Y_5 = -Y_4;
+% Y_1 = out.scope_datanew.signals(1).values;
+% Y_2 = out.scope_datanew.signals(2).values;
 % 
-% figure('NumberTitle','off','Name','Exercise 1');
-% subplot(2,1,1);
+% figure('NumberTitle','off','Name','Bonus 1');
 % grid on
 % hold on;
-% plot(X, Y_1, 'LineWidth', 1.2);
-% xlim([0, 6]);
+% plot(X, Y_1, 'LineWidth', 1.4);
+% plot(X, Y_2, 'LineWidth', 1.4);
+% xlim([0, 3]);
+% ylim([-0.5, 35]);
 % xlabel("Time [s]");
-% ylabel("$\mathrm{a_y\;[m/s^2]}$", 'interpreter', 'latex');
+% ylabel("$\mathrm{\omega\;[rpm]}$", 'interpreter', 'latex');
 % 
-% subplot(2,1,2);
-% grid on
-% hold on;
-% plot(X, Y_2, 'LineWidth', 1.2);
-% plot(X, Y_3, 'LineWidth', 1.2);
-% xlim([0, 6]);
-% ylim([-51, 51]);
-% xlabel("Time [s]");
-% ylabel("$\mathrm{Tilt\;angle\;[^\circ]}$", 'interpreter', 'latex');
-% 
-% matlab2tikz('lab2_exercise1.tex');
+% matlab2tikz('lab3_simulink_simulation.tex');
 
-%%*******************BONUS 1****************************
+%%*******************EXERCISE 1****************************
 
-load("matlab.mat");
+load("meas_ex_1.mat");
 
-X = out.scope_datanew.time;
+X = data.time;
+Y_1 = data.out{1,1}(1,:);
+Y_2 = data.out{1,1}(2,:);
 
-% count = 1;
-% while X(count) < 0 
-%     count = count + 1;
-% end
+count = 1;
+while Y_1(count) == 0 
+    count = count + 1;
+end
 
-Y_1 = out.scope_datanew.signals(1).values;
-Y_2 = out.scope_datanew.signals(2).values;
+X = X(count-100:end) - X(count) + 1;
+Y_1 = Y_1(count-100:end);
+Y_2 = Y_2(count-100:end);
 
-figure('NumberTitle','off','Name','Bonus 1');
+figure('NumberTitle','off','Name','Exercise 1');
 grid on
 hold on;
 plot(X, Y_1, 'LineWidth', 1.4);
 plot(X, Y_2, 'LineWidth', 1.4);
-xlim([0, 3]);
-ylim([-0.5, 35]);
+xlim([0, 10]);
 xlabel("Time [s]");
 ylabel("$\mathrm{\omega\;[rpm]}$", 'interpreter', 'latex');
 
-matlab2tikz('lab3_simulink_simulation.tex');
+% matlab2tikz('lab3_exercise1_meas.tex');
+
+
+
+%%*******************EXERCISE 2****************************
+
+% load("meas_ex_2.mat");
+% 
+% X = data.time;
+% Y_1 = data.out{1,1}(1,:);
+% Y_2 = data.out{1,1}(2,:);
+% 
+% count = 1;
+% while Y_1(count) == 0 
+%     count = count + 1;
+% end
+% 
+% X = X(count-100:end) - X(count) + 1;
+% Y_1 = Y_1(count-100:end);
+% Y_2 = Y_2(count-100:end);
+% 
+% figure('NumberTitle','off','Name','Exercise 2');
+% grid on
+% hold on;
+% plot(X, Y_1, 'LineWidth', 1.4);
+% plot(X, Y_2, 'LineWidth', 1.4);
+% xlim([0, 10]);
+% xlabel("Time [s]");
+% ylabel("$\mathrm{\omega\;[rpm]}$", 'interpreter', 'latex');
+% 
+% % matlab2tikz('lab3_exercise2_meas.tex');
+
+
 

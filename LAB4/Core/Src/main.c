@@ -126,7 +126,8 @@ extern void initialise_monitor_handles(void);
 //const float Kw = 2.0;
 float Kp = 0.435;
 float Ki = 2.947;
-const float Kw = 25.0;
+float Kw = 25.0;
+float Ky = 0.0;
 
 float reference_r = 0.0;
 float reference_l = 0.0;
@@ -237,35 +238,29 @@ float compute_SL_error() {
 	return num_sum/den_sum;
 }
 
-float linear_yaw_controller(float yaw_error, float K) {
-	return yaw_error*K;
+float linear_controller(float input, float K) {
+	return input*K;
 }
 
-void speed_controller(float SL_error, float max_speed) {
-	// YAW LINEAR CONTROLLER
-	float K = 4.5;
-	float yaw_dot = linear_yaw_controller(SL_error/H, K);
+float speed_controller(float SL_error, float max_speed) {
+	float cV = max_speed;
 
-	if (fabs(SL_error) < 0.01) {
-		// KINEMATIC CONVERSION
-		reference_r = saturate((max_speed + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((max_speed - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-	} else if(fabs(SL_error) < 0.02) {
-		// KINEMATIC CONVERSION
-		reference_r = saturate((max_speed*(-2.5*SL_error + 0.75) + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((max_speed*(-2.5*SL_error + 0.75) - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02)
+		cV = max_speed*(-2.5*SL_error + 0.75);
+	else if (fabs(SL_error) > 0.02)
+		cV = max_speed*0.25;
+
+	return cV;
+}
+
+void complex_controller(float SL_error) {
+	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02) {
+		Kp = 1.0;
+		Ki = 4.0;
+		Ky = 6.0;
 	} else if (fabs(SL_error) > 0.02) {
-		reference_r = saturate((max_speed*0.25 + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((max_speed*0.25 - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		/*if (SL_error > 0) {
-			reference_r = saturate(0, 0, 100);
-			reference_l = saturate((max_speed*0.25 - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		} else {
-			reference_r = saturate((max_speed*0.25 + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-			reference_l = saturate(0, 0, 100);
-		}*/
+		// DEFAULT VALUES TO IMPLEMENT
 	}
-
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -281,8 +276,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static uint32_t TIM4_PreviousCount = 0;
 		float w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
+		// SIMPLE LINEAR CONTROLLER
+		//Ky = 45.0;
+		//float v_lc = linear_controller(SL_error, Ky);
+
+		//reference_r = saturate((V + v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
+		//reference_l = saturate((V - v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
+
+		// YAW LINEAR CONTROLLER
+		Ky = 4.0;
+		float yaw_dot = linear_controller(SL_error/H, Ky);
+
 		// SPEED CONTROLLER
-		speed_controller(SL_error, V);
+		float cV = speed_controller(SL_error, V);
+
+		reference_r = saturate((cV + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_l = saturate((cV - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
 
 		// SIGNAL ERROR
 		float error_r = reference_r - w_r;
