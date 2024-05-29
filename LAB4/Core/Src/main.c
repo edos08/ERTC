@@ -124,9 +124,9 @@ extern void initialise_monitor_handles(void);
 //const float Kp = 1.0;
 //const float Ki = 15.0;
 //const float Kw = 2.0;
-float Kp = 0.435;
-float Ki = 2.947;
-float Kw = 25.0;
+float Kp = 0.489;		// 1
+float Ki = 0.64;
+float Kw = 10.0;
 float Ky = 0.0;
 
 float reference_r = 0.0;
@@ -160,15 +160,13 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 
 	*TIM_PreviousCount = TIM_CurrentCount;
 
-	//	Speed at the wheel in RAD/S
-	float speed_rads = ((2.0*M_PI)/(3840.0*TS))*(float)TIM_DiffCount;
+	//	Return speed in rpm
+	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM_DiffCount;
+	float speed_rpm = speed_rads/RPM2RADS;
 
-	//	Speed at the wheel in RPM
-	float wheel_speed_rpm = speed_rads/(float)RPM2RADS;
-	//float motor_speed_rpm = wheel_speed_rpm*120;
-
-	return wheel_speed_rpm;
+	return speed_rpm;
 }
+
 
 float saturate(float u, float min, float max) {
 	if (u > max) return max;
@@ -183,33 +181,27 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u, 0.1-VBATT, VBATT-1.0);
+		float saturation = u - saturate(u, 1-VBATT, VBATT-1);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
 
-	return saturate(u, 0.1-VBATT, VBATT-0.1);
+	return u;
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
-	if (duty >= 0) {
-		if (fwd_coast) {
-			// alternate between forward and coast
-			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		} else {
-			// alternate between forward and brake, TIM8_ARR_VALUE is a define
-			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
-		}
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty) {
+	/*if (duty > TIM8_ARR_VALUE)
+		duty = TIM8_ARR_VALUE;*/
+	if (duty >= 0) { // rotate forward
+		// alternate between forward and coast
+		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+		__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+		// alternate between forward and brake, TIM8_ARR_VALUE is a define
+		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+	    //__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
 	} else { // rotate backward
-		if (fwd_coast) {
-			__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
-		} else {
-			__HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
-		}
+		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
 	}
 }
 
@@ -284,7 +276,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		//reference_l = saturate((V - v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
 
 		// YAW LINEAR CONTROLLER
-		Ky = 4.0;
+		Ky = 20.0;
 		float yaw_dot = linear_controller(SL_error/H, Ky);
 
 		// SPEED CONTROLLER
@@ -304,12 +296,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		int32_t duty_r = V2DUTY*u_l;
-		int32_t duty_l = V2DUTY*u_r;
+		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r, 1-VBATT, VBATT-1);
+		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l, 1-VBATT, VBATT-1);
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
 
 		// LOGGING
 		data.reference_r = reference_r;
