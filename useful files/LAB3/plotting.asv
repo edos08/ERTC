@@ -38,7 +38,7 @@ clear all;
 
 %%*******************EXERCISE 1****************************
 
-load("lab3_fwd_cst_awu.mat");
+load("lab");
 
 X = data.time;
 Y_1 = data.out{1,1}(1,:);

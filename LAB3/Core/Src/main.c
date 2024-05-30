@@ -213,7 +213,7 @@ const float Ki = 3.14;
 //const float Kp = 0.412; 	// LAST SIMULATION
 //const float Ki = 4.472;
 
-const float Kw = 10; 		// 3,25,50,100
+const float Kw = 8; 		// 3,25,50,100
 
 struct datalog {
 	float reference_r, speed_r, error_r;
