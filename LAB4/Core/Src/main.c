@@ -119,7 +119,7 @@ extern void initialise_monitor_handles(void);
 #define H 0.085
 #define R 0.034
 #define P 0.008
-#define V 0.2
+#define V 0.35
 
 //const float Kp = 1.0;
 //const float Ki = 15.0;
@@ -136,7 +136,7 @@ struct datalog {
 	float reference_r, w_l, error_r;
 	float reference_l, w_r, error_l;
 	float e_sl;
-} data;
+} data_log;
 
 float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32_t TIM_ARR_VALUE) {
 
@@ -194,11 +194,11 @@ void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t chann
 		duty = TIM8_ARR_VALUE;*/
 	if (duty >= 0) { // rotate forward
 		// alternate between forward and coast
-		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-		__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+		//__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
 		// alternate between forward and brake, TIM8_ARR_VALUE is a define
-		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-	    //__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+	    __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
 	} else { // rotate backward
 		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
 		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
@@ -210,21 +210,21 @@ float compute_SL_error() {
 
 	HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
 
-	static uint8_t lines_status[8];
+	static uint8_t sensor_array[8] = {0, 0, 0, 1, 1, 0, 0, 0};
 
 	float den_sum = 0.0;
 	float num_sum = 0.0;
 
 	if (line_sensor_data != 0) {
 		for (uint8_t i=0; i<8; i++) {
-			lines_status[i] = line_sensor_data & 1;
+			sensor_array[i] = line_sensor_data & 1;
 			line_sensor_data >>= 1;
 		}
 	}
 
 	for (uint8_t i=0; i<8; i++) {
-		den_sum += (float)lines_status[i];
-		num_sum += (float)lines_status[i]*(3.5 - i)*P;
+		den_sum += (float)sensor_array[i];
+		num_sum += (float)sensor_array[i]*(3.5 - i)*P;
 	}
 
 	return num_sum/den_sum;
@@ -238,9 +238,9 @@ float speed_controller(float SL_error, float max_speed) {
 	float cV = max_speed;
 
 	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02)
-		cV = max_speed*(-2.5*SL_error + 0.75);
+		cV = max_speed*(-2.5*SL_error + 1.25);
 	else if (fabs(SL_error) > 0.02)
-		cV = max_speed*0.25;
+		cV = max_speed*0.15;
 
 	return cV;
 }
@@ -276,7 +276,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		//reference_l = saturate((V - v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
 
 		// YAW LINEAR CONTROLLER
-		Ky = 20.0;
+		Ky = 18.0;
 		float yaw_dot = linear_controller(SL_error/H, Ky);
 
 		// SPEED CONTROLLER
@@ -304,14 +304,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
 
 		// LOGGING
-		data.reference_r = reference_r;
-		data.w_r = w_r;
-		data.error_r = error_r;
-		data.reference_l = reference_l;
-		data.w_l = w_l;
-		data.error_l = error_l;
+		data_log.reference_r = reference_r;
+		data_log.w_r = w_r;
+		data_log.error_r = error_r;
+		data_log.reference_l = reference_l;
+		data_log.w_l = w_l;
+		data_log.error_l = error_l;
+		data_log.e_sl = SL_error;
 
-		ertc_dlog_send(&logger, &data, sizeof(data));
+		ertc_dlog_send(&logger, &data_log, sizeof(data_log));
 	}
 }
 
