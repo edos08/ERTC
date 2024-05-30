@@ -38,7 +38,7 @@ clear all;
 
 %%*******************EXERCISE 1****************************
 
-load("meas_ex_1.mat");
+load("lab3_fwd_cst_awu_different_ki.mat");
 
 X = data.time;
 Y_1 = data.out{1,1}(1,:);
@@ -49,12 +49,12 @@ while Y_1(count) == 0
     count = count + 1;
 end
 
-X = X(count-100:end) - X(count) + 1;
-Y_1 = Y_1(count-100:end);
-Y_2 = Y_2(count-100:end);
+% X = X(count:end) - X(count) + 1;
+% Y_1 = Y_1(count:end);
+% Y_2 = Y_2(count:end);
 
 figure('NumberTitle','off','Name','Exercise 1');
-grid on
+grid on;
 hold on;
 plot(X, Y_1, 'LineWidth', 1.4);
 plot(X, Y_2, 'LineWidth', 1.4);
