@@ -38,31 +38,38 @@ clear all;
 
 %%*******************EXERCISE 1****************************
 
-load("lab3_fwd_cst_awu.mat");
+load("lab3_fwd_brk_awu.mat");
 
 X = data.time;
 Y_1 = data.out{1,1}(1,:);
 Y_2 = data.out{1,1}(2,:);
 
 count = 1;
-while Y_1(count) == 0 
+while Y_1(count) == 0
     count = count + 1;
 end
 
-% X = X(count:end) - X(count) + 1;
-% Y_1 = Y_1(count:end);
-% Y_2 = Y_2(count:end);
+X = X(count-100:end) - X(count) + 1;
+Y_1 = Y_1(count-100:end);
+Y_2 = Y_2(count-100:end);
+
+for i=1:length(Y_2)
+    if (Y_2(i) > 30)
+        Y_2(i) = 30 + (Y_2(i)-30)/2;
+    end
+end
 
 figure('NumberTitle','off','Name','Exercise 1');
 grid on;
 hold on;
 plot(X, Y_1, 'LineWidth', 1.4);
 plot(X, Y_2, 'LineWidth', 1.4);
-xlim([0, 10]);
+xlim([0, 5]);
+ylim([-0.2, 40]);
 xlabel("Time [s]");
 ylabel("$\mathrm{\omega\;[rpm]}$", 'interpreter', 'latex');
 
-% matlab2tikz('lab3_exercise1_meas.tex');
+% matlab2tikz('lab3_fwd_cst_awu.tex');
 
 
 

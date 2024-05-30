@@ -126,15 +126,15 @@ extern void initialise_monitor_handles(void);
 //const float Kw = 2.0;
 float Kp = 0.489;		// 1
 float Ki = 0.64;
-float Kw = 10.0;
+float Kw = 8.0;
 float Ky = 0.0;
 
 float reference_r = 0.0;
 float reference_l = 0.0;
 
 struct datalog {
-	float reference_r, w_l, error_r;
-	float reference_l, w_r, error_l;
+	float reference_r, w_r, error_r;
+	float reference_l, w_l, error_l;
 	float e_sl;
 } data_log;
 
@@ -186,23 +186,29 @@ float PI(float error, float* u_int, bool antiwindup) {
 		u = u_p + *u_int;
 	}
 
-	return u;
+	return saturate(u, 1-VBATT, VBATT-1);
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty) {
-	/*if (duty > TIM8_ARR_VALUE)
-		duty = TIM8_ARR_VALUE;*/
-	if (duty >= 0) { // rotate forward
-		// alternate between forward and coast
-		//__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-		//__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		// alternate between forward and brake, TIM8_ARR_VALUE is a define
-		__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-	    __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
-	} else { // rotate backward
-		__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
-		__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
-	}
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
+    if (duty >= 0) {
+        if (fwd_coast) {
+            // alternate between forward and coast
+            __HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+        } else {
+            // alternate between forward and brake, TIM8_ARR_VALUE is a define
+            __HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+        }
+    } else { // rotate backward
+        if (fwd_coast) {
+            __HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+        } else {
+            __HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
+        }
+    }
 }
 
 float compute_SL_error() {
@@ -296,12 +302,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		uint32_t duty_r = (uint32_t)V2DUTY*saturate(u_r, 1-VBATT, VBATT-1);
-		uint32_t duty_l = (uint32_t)V2DUTY*saturate(u_l, 1-VBATT, VBATT-1);
+		int32_t duty_r = (int32_t)V2DUTY*u_r;
+		int32_t duty_l = (int32_t)V2DUTY*u_l;
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
 
 		// LOGGING
 		data_log.reference_r = reference_r;
