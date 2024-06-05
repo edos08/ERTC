@@ -264,12 +264,12 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u, 1-VBATT, VBATT-1);
+		float saturation = u - saturate(u, 0.1-VBATT, VBATT-0.1);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
 
-	return saturate(u, 1-VBATT, VBATT-1);
+	return saturate(u, 0.1-VBATT, VBATT-0.1);
 }
 
 void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {

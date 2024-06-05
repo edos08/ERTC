@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -64,7 +65,6 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
-TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim8;
 TIM_HandleTypeDef htim9;
 
@@ -74,6 +74,39 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for controlTask */
+osThreadId_t controlTaskHandle;
+const osThreadAttr_t controlTask_attributes = {
+  .name = "controlTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityRealtime,
+};
+/* Definitions for lineTask */
+osThreadId_t lineTaskHandle;
+const osThreadAttr_t lineTask_attributes = {
+  .name = "lineTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityRealtime,
+};
+/* Definitions for commTask */
+osThreadId_t commTaskHandle;
+const osThreadAttr_t commTask_attributes = {
+  .name = "commTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for binarySemSync */
+osSemaphoreId_t binarySemSyncHandle;
+const osSemaphoreAttr_t binarySemSync_attributes = {
+  .name = "binarySemSync"
+};
 /* USER CODE BEGIN PV */
 struct ertc_dlog logger;
 
@@ -107,7 +140,11 @@ static void MX_UART5_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM9_Init(void);
-static void MX_TIM6_Init(void);
+void StartDefaultTask(void *argument);
+void StartControlTask(void *argument);
+void StartLineTask(void *argument);
+void StartCommTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 extern void initialise_monitor_handles(void);
 /* USER CODE END PFP */
@@ -131,6 +168,14 @@ float Ky = 0.0;
 
 float reference_r = 0.0;
 float reference_l = 0.0;
+
+float w_r = 0.0;
+float w_l = 0.0;
+
+float error_r = 0.0;
+float error_l = 0.0;
+
+float SL_error = 0.0;
 
 struct datalog {
 	float reference_r, w_r, error_r;
@@ -261,67 +306,6 @@ void complex_controller(float SL_error) {
 	}
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	/* Speed ctrl routine */
-	if(htim->Instance == TIM6) {
-		//LINE SENSOR ERROR READING
-		float SL_error = compute_SL_error();
-
-		// ENCODER READING
-		static uint32_t TIM3_PreviousCount = 0;
-		float w_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
-
-		static uint32_t TIM4_PreviousCount = 0;
-		float w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
-
-		// SIMPLE LINEAR CONTROLLER
-		//Ky = 45.0;
-		//float v_lc = linear_controller(SL_error, Ky);
-
-		//reference_r = saturate((V + v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
-		//reference_l = saturate((V - v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
-
-		// YAW LINEAR CONTROLLER
-		Ky = 18.0;
-		float yaw_dot = linear_controller(SL_error/H, Ky);
-
-		// SPEED CONTROLLER
-		float cV = speed_controller(SL_error, V);
-
-		reference_r = saturate((cV + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((cV - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-
-		// SIGNAL ERROR
-		float error_r = reference_r - w_r;
-		float error_l = reference_l - w_l;
-
-		// CONTROLLER INPUT
-		static float u_int_r = 0;
-		float u_r = PI(error_r, &u_int_r, true);
-
-		static float u_int_l = 0;
-		float u_l = PI(error_l, &u_int_l, true);
-
-		int32_t duty_r = (int32_t)V2DUTY*u_r;
-		int32_t duty_l = (int32_t)V2DUTY*u_l;
-
-		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
-
-		// LOGGING
-		data_log.reference_r = reference_r;
-		data_log.w_r = w_r;
-		data_log.error_r = error_r;
-		data_log.reference_l = reference_l;
-		data_log.w_l = w_l;
-		data_log.error_l = error_l;
-		data_log.e_sl = SL_error;
-
-		ertc_dlog_send(&logger, &data_log, sizeof(data_log));
-	}
-}
-
 /* USER CODE END 0 */
 
 /**
@@ -368,7 +352,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_TIM9_Init();
-  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
   /* Disable LCD SPI SS */
 
@@ -494,10 +477,57 @@ int main(void)
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
 
   /* Start speed ctrl ISR */
-  HAL_TIM_Base_Start_IT(&htim6);
 
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* creation of binarySemSync */
+  binarySemSyncHandle = osSemaphoreNew(1, 0, &binarySemSync_attributes);
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* creation of controlTask */
+  controlTaskHandle = osThreadNew(StartControlTask, NULL, &controlTask_attributes);
+
+  /* creation of lineTask */
+  lineTaskHandle = osThreadNew(StartLineTask, NULL, &lineTask_attributes);
+
+  /* creation of commTask */
+  commTaskHandle = osThreadNew(StartCommTask, NULL, &commTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -1079,44 +1109,6 @@ static void MX_TIM5_Init(void)
 }
 
 /**
-  * @brief TIM6 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM6_Init(void)
-{
-
-  /* USER CODE BEGIN TIM6_Init 0 */
-
-  /* USER CODE END TIM6_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = TIM6_PSC_VALUE;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = TIM6_ARR_VALUE;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM6_Init 2 */
-
-  /* USER CODE END TIM6_Init 2 */
-
-}
-
-/**
   * @brief TIM8 Initialization Function
   * @param None
   * @retval None
@@ -1545,6 +1537,151 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartControlTask */
+/**
+* @brief Function implementing the controlTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartControlTask */
+void StartControlTask(void *argument)
+{
+  /* USER CODE BEGIN StartControlTask */
+	/* Infinite loop */
+	for(;;) {
+
+		osSemaphoreAcquire(binarySemSyncHandle, osWaitForever);
+
+		// ENCODER READING
+		static uint32_t TIM3_PreviousCount = 0;
+		w_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
+
+		static uint32_t TIM4_PreviousCount = 0;
+		w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
+
+		// YAW LINEAR CONTROLLER
+		Ky = 18.0;
+		float yaw_dot = linear_controller(SL_error/H, Ky);
+
+		// SPEED CONTROLLER
+		float cV = speed_controller(SL_error, V);
+
+		reference_r = saturate((cV + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_l = saturate((cV - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+
+		// SIGNAL ERROR
+		error_r = reference_r - w_r;
+		error_l = reference_l - w_l;
+
+		// CONTROLLER INPUT
+		static float u_int_r = 0;
+		float u_r = PI(error_r, &u_int_r, true);
+
+		static float u_int_l = 0;
+		float u_l = PI(error_l, &u_int_l, true);
+
+		int32_t duty_r = (int32_t)V2DUTY*u_r;
+		int32_t duty_l = (int32_t)V2DUTY*u_l;
+
+		// SETTING THE MOTOR SPEED
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
+
+		osDelayUntil(10);
+	}
+  /* USER CODE END StartControlTask */
+}
+
+/* USER CODE BEGIN Header_StartLineTask */
+/**
+* @brief Function implementing the lineTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartLineTask */
+void StartLineTask(void *argument)
+{
+  /* USER CODE BEGIN StartLineTask */
+	/* Infinite loop */
+	for(;;) {
+		//LINE SENSOR ERROR READING
+		SL_error = compute_SL_error();
+
+		osSemaphoreRelease(binarySemSyncHandle);
+
+		osDelayUntil(10);
+	}
+  /* USER CODE END StartLineTask */
+}
+
+/* USER CODE BEGIN Header_StartCommTask */
+/**
+* @brief Function implementing the commTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartCommTask */
+void StartCommTask(void *argument)
+{
+  /* USER CODE BEGIN StartCommTask */
+	/* Infinite loop */
+	for(;;) {
+
+		// LOGGING
+		data_log.reference_r = reference_r;
+		data_log.w_r = w_r;
+		data_log.error_r = error_r;
+		data_log.reference_l = reference_l;
+		data_log.w_l = w_l;
+		data_log.error_l = error_l;
+		data_log.e_sl = SL_error;
+
+		ertc_dlog_send(&logger, &data_log, sizeof(data_log));
+
+		osDelayUntil(10);
+	}
+  /* USER CODE END StartCommTask */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
