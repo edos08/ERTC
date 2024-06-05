@@ -93,7 +93,7 @@ osThreadId_t lineTaskHandle;
 const osThreadAttr_t lineTask_attributes = {
   .name = "lineTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
+  .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* Definitions for commTask */
 osThreadId_t commTaskHandle;
@@ -156,7 +156,7 @@ extern void initialise_monitor_handles(void);
 #define H 0.085
 #define R 0.034
 #define P 0.008
-#define V 0.35
+#define V 0.1
 
 //const float Kp = 1.0;
 //const float Ki = 15.0;
@@ -226,15 +226,15 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u, 0.1-VBATT, VBATT-0.1);
+		float saturation = u - saturate(u, 1-VBATT, VBATT-1);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
 
-	return saturate(u, 0.1-VBATT, VBATT-0.1);
+	return saturate(u, 1-VBATT, VBATT-1);
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty, bool fwd_coast) {
     if (duty >= 0) {
         if (fwd_coast) {
             // alternate between forward and coast
@@ -288,10 +288,8 @@ float linear_controller(float input, float K) {
 float speed_controller(float SL_error, float max_speed) {
 	float cV = max_speed;
 
-	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02)
-		cV = max_speed*(-2.5*SL_error + 1.25);
-	else if (fabs(SL_error) > 0.02)
-		cV = max_speed*0.15;
+	if(fabs(SL_error) > 0.01)
+		cV = max_speed*(-5*SL_error + 1.5);
 
 	return cV;
 }
@@ -489,7 +487,7 @@ int main(void)
 
   /* Create the semaphores(s) */
   /* creation of binarySemSync */
-  binarySemSyncHandle = osSemaphoreNew(1, 0, &binarySemSync_attributes);
+  binarySemSyncHandle = osSemaphoreNew(1, 1, &binarySemSync_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -535,7 +533,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  ertc_dlog_update(&logger);
 
 
   }
@@ -1579,7 +1576,7 @@ void StartControlTask(void *argument)
 		w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
 		// YAW LINEAR CONTROLLER
-		Ky = 18.0;
+		Ky = 15.0;
 		float yaw_dot = linear_controller(SL_error/H, Ky);
 
 		// SPEED CONTROLLER
@@ -1599,8 +1596,8 @@ void StartControlTask(void *argument)
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		int32_t duty_r = (int32_t)V2DUTY*u_r;
-		int32_t duty_l = (int32_t)V2DUTY*u_l;
+		uint32_t duty_r = (uint32_t)V2DUTY*u_r;
+		uint32_t duty_l = (uint32_t)V2DUTY*u_l;
 
 		// SETTING THE MOTOR SPEED
 		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
@@ -1626,6 +1623,18 @@ void StartLineTask(void *argument)
 		//LINE SENSOR ERROR READING
 		SL_error = compute_SL_error();
 
+		// LOGGING
+		data_log.reference_r = reference_r;
+		data_log.w_r = w_r;
+		data_log.error_r = error_r;
+		data_log.reference_l = reference_l;
+		data_log.w_l = w_l;
+		data_log.error_l = error_l;
+		data_log.e_sl = SL_error;
+
+		ertc_dlog_send(&logger, &data_log, sizeof(data_log));
+		ertc_dlog_update(&logger);
+
 		osSemaphoreRelease(binarySemSyncHandle);
 
 		osDelayUntil(10);
@@ -1645,17 +1654,6 @@ void StartCommTask(void *argument)
   /* USER CODE BEGIN StartCommTask */
 	/* Infinite loop */
 	for(;;) {
-
-		// LOGGING
-		data_log.reference_r = reference_r;
-		data_log.w_r = w_r;
-		data_log.error_r = error_r;
-		data_log.reference_l = reference_l;
-		data_log.w_l = w_l;
-		data_log.error_l = error_l;
-		data_log.e_sl = SL_error;
-
-		ertc_dlog_send(&logger, &data_log, sizeof(data_log));
 
 		osDelayUntil(10);
 	}

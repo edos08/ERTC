@@ -119,7 +119,7 @@ extern void initialise_monitor_handles(void);
 #define H 0.085
 #define R 0.034
 #define P 0.008
-#define V 0.35
+#define V 0.15
 
 //const float Kp = 1.0;
 //const float Ki = 15.0;
@@ -189,7 +189,7 @@ float PI(float error, float* u_int, bool antiwindup) {
 	return saturate(u, 0.1-VBATT, VBATT-0.1);
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty, bool fwd_coast) {
     if (duty >= 0) {
         if (fwd_coast) {
             // alternate between forward and coast
@@ -244,14 +244,14 @@ float speed_controller(float SL_error, float max_speed) {
 	float cV = max_speed;
 
 	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02)
-		cV = max_speed*(-2.5*SL_error + 1.25);
+		cV = max_speed*(-2.5*SL_error + 0.75);
 	else if (fabs(SL_error) > 0.02)
-		cV = max_speed*0.15;
+		cV = max_speed*0.25;
 
 	return cV;
 }
 
-void complex_controller(float SL_error) {
+/*void complex_controller(float SL_error) {
 	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02) {
 		Kp = 1.0;
 		Ki = 4.0;
@@ -259,7 +259,7 @@ void complex_controller(float SL_error) {
 	} else if (fabs(SL_error) > 0.02) {
 		// DEFAULT VALUES TO IMPLEMENT
 	}
-}
+}*/
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	/* Speed ctrl routine */
@@ -282,7 +282,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		//reference_l = saturate((V - v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
 
 		// YAW LINEAR CONTROLLER
-		Ky = 18.0;
+		Ky = 10.0;
 		float yaw_dot = linear_controller(SL_error/H, Ky);
 
 		// SPEED CONTROLLER
@@ -302,8 +302,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		int32_t duty_r = (int32_t)V2DUTY*u_r;
-		int32_t duty_l = (int32_t)V2DUTY*u_l;
+		uint32_t duty_r = (uint32_t)V2DUTY*u_r;
+		uint32_t duty_l = (uint32_t)V2DUTY*u_l;
 
 		// SETTING THE MOTOR SPEED
 		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
