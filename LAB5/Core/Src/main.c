@@ -1602,8 +1602,6 @@ void StartControlTask(void *argument)
 		// SETTING THE MOTOR SPEED
 		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
 		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
-
-		osDelayUntil(10);
 	}
   /* USER CODE END StartControlTask */
 }
