@@ -43,7 +43,7 @@
 #define V2DUTY	((float)(TIM8_ARR_VALUE+1)/VBATT)
 #define DUTY2V	((float)VBATT/(TIM8_ARR_VALUE+1))
 
-#define RPM2RADS	2*M_PI/60
+#define RPM2RADS	2.0*M_PI/60.0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -196,9 +196,24 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 //const float Kp = 0.489;
 //const float Ki = 9.033;
-const float Kp = 0.435;
-const float Ki = 2.947;
-const float Kw = 25.0;
+
+//const float Kp = 0.2;
+//const float Ki = 3.14;
+
+const float Kp = 0.489;		// 1
+const float Ki = 3.14;
+//const float Ki = 2.64;
+
+//const float Kp = 0.522;		// 2
+//const float Ki = 5.120;
+
+//const float Kp = 0.294; 	// LAST SIMULATION 3
+//const float Ki = 3.388;
+
+//const float Kp = 0.412; 	// LAST SIMULATION
+//const float Ki = 4.472;
+
+const float Kw = 8.0; 		// 3,25,50,100
 
 struct datalog {
 	float reference_r, speed_r, error_r;
@@ -227,14 +242,13 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 
 	*TIM_PreviousCount = TIM_CurrentCount;
 
-	//	Speed at the wheel in RAD/S
-	float speed_rads = ((2.0*M_PI)/(3840.0*TS))*(float)TIM_DiffCount;
+    //	Speed in RAD/S
+	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM_DiffCount;
 
-	//	Speed at the wheel in RPM
-	float wheel_speed_rpm = speed_rads/(float)RPM2RADS;
-	//float motor_speed_rpm = wheel_speed_rpm*120;
+    //	Speed in RPM
+	float speed_rpm = speed_rads/RPM2RADS;
 
-	return wheel_speed_rpm;
+    return speed_rpm;
 }
 
 float saturate(float u, float min, float max) {
@@ -250,7 +264,7 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u, 0.1-VBATT, VBATT-1.0);
+		float saturation = u - saturate(u, 0.1-VBATT, VBATT-0.1);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
@@ -259,25 +273,25 @@ float PI(float error, float* u_int, bool antiwindup) {
 }
 
 void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
-	if (duty >= 0) {
-		if (fwd_coast) {
-			// alternate between forward and coast
-			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		} else {
-			// alternate between forward and brake, TIM8_ARR_VALUE is a define
-			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
-		}
-	} else { // rotate backward
-		if (fwd_coast) {
-			__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
-		} else {
-			__HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
-		}
-	}
+    if (duty >= 0) {
+        if (fwd_coast) {
+            // alternate between forward and coast
+            __HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+        } else {
+            // alternate between forward and brake, TIM8_ARR_VALUE is a define
+            __HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+        }
+    } else { // rotate backward
+        if (fwd_coast) {
+            __HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+        } else {
+            __HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
+        }
+    }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -285,14 +299,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim->Instance == TIM6) {
 		// ENCODER READING
 		static uint32_t TIM3_PreviousCount = 0;
-		float wheel_speed_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
+		float speed_r = compute_speed(&htim3, &TIM3_PreviousCount, TIM3_ARR_VALUE);
 
 		static uint32_t TIM4_PreviousCount = 0;
-		float wheel_speed_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
+		float speed_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
 		// SIGNAL ERROR
-		float error_r = reference - wheel_speed_r;
-		float error_l = reference - wheel_speed_l;
+		float error_r = reference - speed_r;
+		float error_l = reference - speed_l;
 
 		// CONTROLLER INPUT
 		static float u_int_r = 0;
@@ -301,19 +315,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		int32_t duty_r = V2DUTY*u_l;
-		int32_t duty_l = V2DUTY*u_r;
+		int32_t duty_r = (int32_t)V2DUTY*u_r;
+		int32_t duty_l = (int32_t)V2DUTY*u_l;
 
 		// SETTING THE MOTOR SPEED
-		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, true);
-		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, true);
+		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
+		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
 
 		// LOGGING
 		data.reference_r = reference;
-		data.speed_r = wheel_speed_r;
+		data.speed_r = speed_r;
 		data.error_r = error_r;
 		data.reference_l = reference;
-		data.speed_l = wheel_speed_l;
+		data.speed_l = speed_l;
 		data.error_l = error_l;
 
 		ertc_dlog_send(&logger, &data, sizeof(data));
@@ -460,7 +474,7 @@ int main(void)
 
   /* Enable EXTI2_IRQ after SX1509 initialization */
   HAL_Delay(100);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+  //HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
   logger.uart_handle = huart3; // for serial
   //logger.uart_handle = huart2; // for wifi
@@ -494,7 +508,7 @@ int main(void)
   /* Start speed ctrl ISR */
   HAL_TIM_Base_Start_IT(&htim6);
   HAL_Delay(5000);
-  reference = 20.0;
+  reference = 30.0;
 
   /* USER CODE END 2 */
 
