@@ -14,6 +14,6 @@ instrreset
 % 
 % data = serial_datalog(port, {'2*single', '1*single', '2*single', '1*single', '1*single'}, 'baudrate', 115200);
 
-data = udp_datalog('147.162.118.148', 9090, {'2*single', '1*single', '2*single', '1*single', '1*single'});
+data = udp_datalog('147.162.118.156', 9090, {'2*single', '1*single', '2*single', '1*single', '1*single'}, 'Buffersize', 100000);
 
-save('LabData');
+save('lab_data');
