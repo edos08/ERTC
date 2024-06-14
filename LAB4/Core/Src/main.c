@@ -119,23 +119,24 @@ extern void initialise_monitor_handles(void);
 #define H 0.085
 #define R 0.034
 #define P 0.008
-#define V 0.2
+#define V 0.15
 
 //const float Kp = 1.0;
 //const float Ki = 15.0;
 //const float Kw = 2.0;
-float Kp = 0.435;
-float Ki = 2.947;
-const float Kw = 25.0;
+float Kp = 0.489;		// 1
+float Ki = 0.64;
+float Kw = 8.0;
+float Ky = 0.0;
 
 float reference_r = 0.0;
 float reference_l = 0.0;
 
 struct datalog {
-	float reference_r, w_l, error_r;
-	float reference_l, w_r, error_l;
+	float reference_r, w_r, error_r;
+	float reference_l, w_l, error_l;
 	float e_sl;
-} data;
+} data_log;
 
 float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32_t TIM_ARR_VALUE) {
 
@@ -159,15 +160,13 @@ float compute_speed(TIM_HandleTypeDef* htim, uint32_t* TIM_PreviousCount, uint32
 
 	*TIM_PreviousCount = TIM_CurrentCount;
 
-	//	Speed at the wheel in RAD/S
-	float speed_rads = ((2.0*M_PI)/(3840.0*TS))*(float)TIM_DiffCount;
+	//	Return speed in rpm
+	float speed_rads = ((2*M_PI*120)/(3840.0*TS))*(float)TIM_DiffCount;
+	float speed_rpm = speed_rads/RPM2RADS;
 
-	//	Speed at the wheel in RPM
-	float wheel_speed_rpm = speed_rads/(float)RPM2RADS;
-	//float motor_speed_rpm = wheel_speed_rpm*120;
-
-	return wheel_speed_rpm;
+	return speed_rpm;
 }
+
 
 float saturate(float u, float min, float max) {
 	if (u > max) return max;
@@ -182,7 +181,7 @@ float PI(float error, float* u_int, bool antiwindup) {
 	float u = u_p + *u_int;
 
 	if (antiwindup) {
-		float saturation = u - saturate(u, 0.1-VBATT, VBATT-1.0);
+		float saturation = u - saturate(u, 0.1-VBATT, VBATT-0.1);
 		*u_int -= saturation*Kw*TS;
 		u = u_p + *u_int;
 	}
@@ -190,26 +189,26 @@ float PI(float error, float* u_int, bool antiwindup) {
 	return saturate(u, 0.1-VBATT, VBATT-0.1);
 }
 
-void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, int32_t duty, bool fwd_coast) {
-	if (duty >= 0) {
-		if (fwd_coast) {
-			// alternate between forward and coast
-			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, 0);
-		} else {
-			// alternate between forward and brake, TIM8_ARR_VALUE is a define
-			__HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
-		}
-	} else { // rotate backward
-		if (fwd_coast) {
-			__HAL_TIM_SET_COMPARE(htim, channel_1, 0);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
-		} else {
-			__HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
-			__HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
-		}
-	}
+void set_motor_speed(TIM_HandleTypeDef* htim, uint32_t channel_1, uint32_t channel_2, uint32_t duty, bool fwd_coast) {
+    if (duty >= 0) {
+        if (fwd_coast) {
+            // alternate between forward and coast
+            __HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)duty);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, 0);
+        } else {
+            // alternate between forward and brake, TIM8_ARR_VALUE is a define
+            __HAL_TIM_SET_COMPARE(htim, channel_1, (uint32_t)TIM8_ARR_VALUE);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, TIM8_ARR_VALUE - duty);
+        }
+    } else { // rotate backward
+        if (fwd_coast) {
+            __HAL_TIM_SET_COMPARE(htim, channel_1, 0);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t) - duty);
+        } else {
+            __HAL_TIM_SET_COMPARE(htim, channel_1, TIM8_ARR_VALUE + duty);
+            __HAL_TIM_SET_COMPARE(htim, channel_2, (uint32_t)TIM8_ARR_VALUE);
+        }
+    }
 }
 
 float compute_SL_error() {
@@ -217,56 +216,50 @@ float compute_SL_error() {
 
 	HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &line_sensor_data, 1, I2C_TIMEOUT);
 
-	static uint8_t lines_status[8];
+	static uint8_t sensor_array[8] = {0, 0, 0, 1, 1, 0, 0, 0};
 
 	float den_sum = 0.0;
 	float num_sum = 0.0;
 
 	if (line_sensor_data != 0) {
 		for (uint8_t i=0; i<8; i++) {
-			lines_status[i] = line_sensor_data & 1;
+			sensor_array[i] = line_sensor_data & 1;
 			line_sensor_data >>= 1;
 		}
 	}
 
 	for (uint8_t i=0; i<8; i++) {
-		den_sum += (float)lines_status[i];
-		num_sum += (float)lines_status[i]*(3.5 - i)*P;
+		num_sum += (float)sensor_array[i]*(3.5 - i)*P;
+		den_sum += (float)sensor_array[i];
 	}
 
 	return num_sum/den_sum;
 }
 
-float linear_yaw_controller(float yaw_error, float K) {
-	return yaw_error*K;
+float linear_controller(float input, float K) {
+	return input*K;
 }
 
-void speed_controller(float SL_error, float max_speed) {
-	// YAW LINEAR CONTROLLER
-	float K = 4.5;
-	float yaw_dot = linear_yaw_controller(SL_error/H, K);
+float speed_controller(float SL_error, float max_speed) {
+	float cV = max_speed;
 
-	if (fabs(SL_error) < 0.01) {
-		// KINEMATIC CONVERSION
-		reference_r = saturate((max_speed + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((max_speed - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-	} else if(fabs(SL_error) < 0.02) {
-		// KINEMATIC CONVERSION
-		reference_r = saturate((max_speed*(-2.5*SL_error + 0.75) + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((max_speed*(-2.5*SL_error + 0.75) - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02)
+		cV = max_speed*(-2.5*SL_error + 0.75);
+	else if (fabs(SL_error) > 0.02)
+		cV = max_speed*0.25;
+
+	return cV;
+}
+
+/*void complex_controller(float SL_error) {
+	if(fabs(SL_error) > 0.01 && fabs(SL_error) < 0.02) {
+		Kp = 1.0;
+		Ki = 4.0;
+		Ky = 6.0;
 	} else if (fabs(SL_error) > 0.02) {
-		reference_r = saturate((max_speed*0.25 + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		reference_l = saturate((max_speed*0.25 - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		/*if (SL_error > 0) {
-			reference_r = saturate(0, 0, 100);
-			reference_l = saturate((max_speed*0.25 - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-		} else {
-			reference_r = saturate((max_speed*0.25 + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
-			reference_l = saturate(0, 0, 100);
-		}*/
+		// DEFAULT VALUES TO IMPLEMENT
 	}
-
-}
+}*/
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	/* Speed ctrl routine */
@@ -281,8 +274,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static uint32_t TIM4_PreviousCount = 0;
 		float w_l = compute_speed(&htim4, &TIM4_PreviousCount, TIM4_ARR_VALUE);
 
+		// SIMPLE LINEAR CONTROLLER
+		//Ky = 45.0;
+		//float v_lc = linear_controller(SL_error, Ky);
+
+		//reference_r = saturate((V + v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
+		//reference_l = saturate((V - v_lc*D/2.0)/(R*RPM2RADS), 0, 100);
+
+		// YAW LINEAR CONTROLLER
+		Ky = 10.0;
+		float yaw_dot = linear_controller(SL_error/H, Ky);
+
 		// SPEED CONTROLLER
-		speed_controller(SL_error, V);
+		float cV = speed_controller(SL_error, V);
+
+		reference_r = saturate((cV + yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
+		reference_l = saturate((cV - yaw_dot*D/2.0)/(R*RPM2RADS), 0, 100);
 
 		// SIGNAL ERROR
 		float error_r = reference_r - w_r;
@@ -295,22 +302,23 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		static float u_int_l = 0;
 		float u_l = PI(error_l, &u_int_l, true);
 
-		int32_t duty_r = V2DUTY*u_l;
-		int32_t duty_l = V2DUTY*u_r;
+		uint32_t duty_r = (uint32_t)V2DUTY*u_r;
+		uint32_t duty_l = (uint32_t)V2DUTY*u_l;
 
 		// SETTING THE MOTOR SPEED
 		set_motor_speed(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty_r, false);
 		set_motor_speed(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty_l, false);
 
 		// LOGGING
-		data.reference_r = reference_r;
-		data.w_r = w_r;
-		data.error_r = error_r;
-		data.reference_l = reference_l;
-		data.w_l = w_l;
-		data.error_l = error_l;
+		data_log.reference_r = reference_r;
+		data_log.w_r = w_r;
+		data_log.error_r = error_r;
+		data_log.reference_l = reference_l;
+		data_log.w_l = w_l;
+		data_log.error_l = error_l;
+		data_log.e_sl = SL_error;
 
-		ertc_dlog_send(&logger, &data, sizeof(data));
+		ertc_dlog_send(&logger, &data_log, sizeof(data_log));
 	}
 }
 
